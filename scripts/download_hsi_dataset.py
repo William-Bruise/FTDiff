@@ -18,7 +18,7 @@ ICVL_ZIP_SOURCES = [
 ]
 
 CAVE_ZIP_SOURCES = [
-    "https://www.cs.columbia.edu/CAVE/databases/multispectral/complete_ms_data.zip",
+    "https://cave.cs.columbia.edu/old/databases/multispectral/zip/complete_ms_data.zip",
     "https://huggingface.co/datasets/pinecone/cave-multispectral/resolve/main/complete_ms_data.zip",
 ]
 
