@@ -209,3 +209,8 @@ Main added scripts:
 - `scripts/download_hsi_dataset.py`
 - `scripts/run_hsi_finetune.sh`
 - `scripts/run_hsi_restoration.sh`
+
+
+Adapter defaults are set to a deeper residual head/tail for stronger HSI adaptation:
+- `--adapter_hidden_channels 128`
+- `--adapter_num_blocks 4`

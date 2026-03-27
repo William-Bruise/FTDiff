@@ -2,30 +2,71 @@ import torch
 import torch.nn as nn
 
 
-class ConvHead(nn.Module):
-    def __init__(self, in_channels: int, hidden_channels: int = 64, out_channels: int = 3):
+class ResidualConvBlock(nn.Module):
+    def __init__(self, channels: int):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Conv2d(in_channels, hidden_channels, kernel_size=3, padding=1),
+        groups = 8 if channels % 8 == 0 else 1
+        self.block = nn.Sequential(
+            nn.Conv2d(channels, channels, kernel_size=3, padding=1),
+            nn.GroupNorm(groups, channels),
             nn.GELU(),
-            nn.Conv2d(hidden_channels, out_channels, kernel_size=3, padding=1),
+            nn.Conv2d(channels, channels, kernel_size=3, padding=1),
+            nn.GroupNorm(groups, channels),
         )
+        self.act = nn.GELU()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.net(x)
+        return self.act(x + self.block(x))
+
+
+class ConvHead(nn.Module):
+    def __init__(
+        self,
+        in_channels: int,
+        hidden_channels: int = 128,
+        out_channels: int = 3,
+        num_blocks: int = 4,
+    ):
+        super().__init__()
+        groups = 8 if hidden_channels % 8 == 0 else 1
+        self.stem = nn.Sequential(
+            nn.Conv2d(in_channels, hidden_channels, kernel_size=3, padding=1),
+            nn.GroupNorm(groups, hidden_channels),
+            nn.GELU(),
+        )
+        self.blocks = nn.Sequential(*[ResidualConvBlock(hidden_channels) for _ in range(num_blocks)])
+        self.proj = nn.Conv2d(hidden_channels, out_channels, kernel_size=3, padding=1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.stem(x)
+        x = self.blocks(x)
+        x = self.proj(x)
+        return x
 
 
 class ConvTail(nn.Module):
-    def __init__(self, in_channels: int = 3, hidden_channels: int = 64, out_channels: int = 31):
+    def __init__(
+        self,
+        in_channels: int = 3,
+        hidden_channels: int = 128,
+        out_channels: int = 31,
+        num_blocks: int = 4,
+    ):
         super().__init__()
-        self.net = nn.Sequential(
+        groups = 8 if hidden_channels % 8 == 0 else 1
+        self.stem = nn.Sequential(
             nn.Conv2d(in_channels, hidden_channels, kernel_size=3, padding=1),
+            nn.GroupNorm(groups, hidden_channels),
             nn.GELU(),
-            nn.Conv2d(hidden_channels, out_channels, kernel_size=3, padding=1),
         )
+        self.blocks = nn.Sequential(*[ResidualConvBlock(hidden_channels) for _ in range(num_blocks)])
+        self.proj = nn.Conv2d(hidden_channels, out_channels, kernel_size=3, padding=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.net(x)
+        x = self.stem(x)
+        x = self.blocks(x)
+        x = self.proj(x)
+        return x
 
 
 class FrozenDiffusionWithAdapters(nn.Module):
@@ -41,7 +82,8 @@ class FrozenDiffusionWithAdapters(nn.Module):
         self,
         core_model: nn.Module,
         hsi_channels: int,
-        adapter_hidden_channels: int = 64,
+        adapter_hidden_channels: int = 128,
+        adapter_num_blocks: int = 4,
         freeze_core: bool = True,
     ):
         super().__init__()
@@ -52,11 +94,13 @@ class FrozenDiffusionWithAdapters(nn.Module):
             in_channels=hsi_channels,
             hidden_channels=adapter_hidden_channels,
             out_channels=3,
+            num_blocks=adapter_num_blocks,
         )
         self.tail = ConvTail(
             in_channels=3,
             hidden_channels=adapter_hidden_channels,
             out_channels=hsi_channels,
+            num_blocks=adapter_num_blocks,
         )
 
         if freeze_core:
@@ -87,11 +131,13 @@ def build_hsi_adapter_model(
     core_model: nn.Module,
     hsi_channels: int,
     adapter_hidden_channels: int,
+    adapter_num_blocks: int = 4,
     freeze_core: bool = True,
 ) -> FrozenDiffusionWithAdapters:
     return FrozenDiffusionWithAdapters(
         core_model=core_model,
         hsi_channels=hsi_channels,
         adapter_hidden_channels=adapter_hidden_channels,
+        adapter_num_blocks=adapter_num_blocks,
         freeze_core=freeze_core,
     )

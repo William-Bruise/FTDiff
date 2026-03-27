@@ -21,7 +21,8 @@ python train_hsi_adapter.py \
   --image_size 256 \
   --random_crop_size 256 \
   --repeats_per_scene 8 \
-  --adapter_hidden_channels 64 \
+  --adapter_hidden_channels 128 \
+  --adapter_num_blocks 4 \
   --epochs 20 \
   --batch_size 2 \
   --num_workers 4 \

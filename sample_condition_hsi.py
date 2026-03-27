@@ -58,7 +58,8 @@ def main():
     parser.add_argument('--task_config', type=str)
     parser.add_argument('--adapter_ckpt', type=str, required=True)
     parser.add_argument('--hsi_channels', type=int, default=31)
-    parser.add_argument('--adapter_hidden_channels', type=int, default=64)
+    parser.add_argument('--adapter_hidden_channels', type=int, default=128)
+    parser.add_argument('--adapter_num_blocks', type=int, default=4)
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--save_dir', type=str, default='./results_hsi')
     args = parser.parse_args()
@@ -78,6 +79,7 @@ def main():
         core_model=base_model,
         hsi_channels=args.hsi_channels,
         adapter_hidden_channels=args.adapter_hidden_channels,
+        adapter_num_blocks=args.adapter_num_blocks,
         freeze_core=True,
     ).to(device)
 
