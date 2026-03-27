@@ -1,0 +1,18 @@
+conditioning:
+  method: ps
+  params:
+    scale: 0.5
+
+data:
+  name: hsi
+  root: ./data/hsi/icvl
+  image_size: 256
+
+measurement:
+  operator:
+    name: snapshot_compressive
+    in_shape: [31, 256, 256]
+    mask_seed: 42
+  noise:
+    name: gaussian
+    sigma: 0.01
