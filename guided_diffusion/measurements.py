@@ -202,7 +202,7 @@ class NonlinearBlurOperator(NonLinearOperator):
 
 @register_operator(name='snapshot_compressive')
 class SnapshotCompressiveOperator(LinearOperator):
-    """
+    r"""
     Simplified CASSI-like snapshot compressive sensing:
     y = sum_c (M_c \odot x_c), and transpose uses back-projection with same masks.
     """

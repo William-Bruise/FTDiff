@@ -12,7 +12,7 @@ from guided_diffusion.unet import create_model
 from guided_diffusion.gaussian_diffusion import create_sampler
 from data.hsi_dataset import HyperspectralFolderDataset
 from models_hsi_adapter import build_hsi_adapter_model
-from util.img_utils import clear_color, mask_generator
+from util.img_utils import clear_color
 from util.logger import get_logger
 
 
@@ -21,6 +21,21 @@ def load_yaml(file_path: str) -> dict:
         config = yaml.load(f, Loader=yaml.FullLoader)
     return config
 
+
+
+
+def build_hsi_inpainting_mask(ref_img: torch.Tensor, mask_opt: dict) -> torch.Tensor:
+    """Generate 1-channel spatial mask and broadcast along HSI channels."""
+    mask_type = mask_opt.get("mask_type", "random")
+    if mask_type != "random":
+        raise NotImplementedError("Only random mask_type is supported for HSI in this script.")
+
+    pmin, pmax = mask_opt.get("mask_prob_range", (0.3, 0.7))
+    prob = float(torch.empty(1).uniform_(float(pmin), float(pmax)).item())
+
+    b, c, h, w = ref_img.shape
+    spatial_mask = (torch.rand((b, 1, h, w), device=ref_img.device) < prob).float()
+    return spatial_mask
 
 def to_rgb_preview(hsi_tensor: torch.Tensor) -> torch.Tensor:
     """Simple band selection for visualization (R,G,B ~= high, mid, low wavelength bands)."""
@@ -96,17 +111,13 @@ def main():
         channels=args.hsi_channels,
     )
 
-    if measure_config['operator']['name'] == 'inpainting':
-        mask_gen = mask_generator(**measure_config['mask_opt'])
-
     for i in range(len(dataset)):
         logger.info(f"Inference for image {i}")
         fname = str(i).zfill(5) + '.png'
         ref_img = dataset[i].unsqueeze(0).to(device)
 
         if measure_config['operator']['name'] == 'inpainting':
-            mask = mask_gen(ref_img)
-            mask = mask[:, 0, :, :].unsqueeze(dim=0)
+            mask = build_hsi_inpainting_mask(ref_img, measure_config['mask_opt'])
             measurement_cond_fn = partial(cond_method.conditioning, mask=mask)
             sample_fn = partial(sample_fn, measurement_cond_fn=measurement_cond_fn)
             y = operator.forward(ref_img, mask=mask)
