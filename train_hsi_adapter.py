@@ -34,6 +34,10 @@ def train(args):
     model_cfg = load_yaml(args.model_config)
     diffusion_cfg = load_yaml(args.diffusion_config)
 
+    if model_cfg.get("use_checkpoint", False):
+        print("[WARN] use_checkpoint=True is incompatible with frozen-core adapter training. Forcing use_checkpoint=False.")
+        model_cfg["use_checkpoint"] = False
+
     base_model = create_model(**model_cfg).to(device)
     adapter_model = build_hsi_adapter_model(
         core_model=base_model,
@@ -107,12 +111,18 @@ def train(args):
                     pred, _ = torch.chunk(pred, 2, dim=1)
                 loss = F.mse_loss(pred, noise)
 
-            scaler.scale(loss).backward()
-            if args.grad_clip > 0:
-                scaler.unscale_(optim)
-                torch.nn.utils.clip_grad_norm_(adapter_model.trainable_parameters(), args.grad_clip)
-            scaler.step(optim)
-            scaler.update()
+            if amp_enabled:
+                scaler.scale(loss).backward()
+                if args.grad_clip > 0:
+                    scaler.unscale_(optim)
+                    torch.nn.utils.clip_grad_norm_(adapter_model.trainable_parameters(), args.grad_clip)
+                scaler.step(optim)
+                scaler.update()
+            else:
+                loss.backward()
+                if args.grad_clip > 0:
+                    torch.nn.utils.clip_grad_norm_(adapter_model.trainable_parameters(), args.grad_clip)
+                optim.step()
 
             global_step += 1
             train_losses.append(loss.item())

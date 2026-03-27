@@ -184,6 +184,8 @@ python scripts/download_hsi_dataset.py --dataset icvl --output ./data/hsi/icvl -
 
 `run_hsi_finetune.sh` will skip dataset download automatically if `.mat/.npy` files already exist in `DATA_ROOT`.
 
+Note: during adapter fine-tuning, `train_hsi_adapter.py` will force `use_checkpoint=False` from model config to avoid autograd errors when the diffusion core is frozen.
+
 ```bash
 bash scripts/run_hsi_finetune.sh
 ```
