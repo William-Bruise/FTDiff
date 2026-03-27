@@ -77,7 +77,10 @@ def train(args):
 
     optim = AdamW(adapter_model.trainable_parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
-    scaler = torch.cuda.amp.GradScaler(enabled=args.amp)
+    amp_enabled = bool(args.amp and device.type == "cuda")
+    if args.amp and not amp_enabled:
+        print("[WARN] AMP requested but CUDA is unavailable. AMP disabled.")
+    scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
 
     out_dir = Path(args.save_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -98,7 +101,7 @@ def train(args):
                 extract(sampler.sqrt_one_minus_alphas_cumprod, t, x0.shape, device) * noise
 
             optim.zero_grad(set_to_none=True)
-            with torch.cuda.amp.autocast(enabled=args.amp):
+            with torch.amp.autocast(device_type=device.type, enabled=amp_enabled):
                 pred = adapter_model(x_t, sampler._scale_timesteps(t))
                 if pred.shape[1] == 2 * x0.shape[1]:
                     pred, _ = torch.chunk(pred, 2, dim=1)

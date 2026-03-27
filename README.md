@@ -167,13 +167,13 @@ This repo now includes an HSI fine-tuning path that keeps the pretrained diffusi
 ### 1) Download hyperspectral dataset (default: CAVE)
 
 ```bash
-# default uses CAVE (official Columbia zip + mirror fallback)
+## default uses CAVE (official Columbia zip)
 python scripts/download_hsi_dataset.py --dataset cave --output ./data/hsi/cave
 
 # optional datasets
 python scripts/download_hsi_dataset.py --dataset ehu --output ./data/hsi/ehu
 
-# ICVL via SharePoint/HF fallback
+# ICVL via SharePoint URL or custom source_urls
 python scripts/download_hsi_dataset.py --dataset icvl --output ./data/hsi/icvl
 
 # if you manually downloaded ICVL zip from SharePoint, use local zip directly
@@ -181,6 +181,8 @@ python scripts/download_hsi_dataset.py --dataset icvl --output ./data/hsi/icvl -
 ```
 
 ### 2) Fine-tune adapter on HSI data (256x256)
+
+`run_hsi_finetune.sh` will skip dataset download automatically if `.mat/.npy` files already exist in `DATA_ROOT`.
 
 ```bash
 bash scripts/run_hsi_finetune.sh

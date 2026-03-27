@@ -27,5 +27,4 @@ python train_hsi_adapter.py \
   --num_workers 4 \
   --lr 2e-4 \
   --weight_decay 1e-4 \
-  --grad_clip 1.0 \
-  --amp
+  --grad_clip 1.0
