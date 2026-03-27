@@ -9,17 +9,15 @@ from PIL import Image
 from torch.utils.data import Dataset
 
 
-def _to_tensor_hsi(cube: np.ndarray, target_size: Tuple[int, int]) -> torch.Tensor:
-    # cube: H, W, C
+def _normalize_cube(cube: np.ndarray) -> np.ndarray:
     cube = cube.astype(np.float32)
-    if cube.ndim != 3:
-        raise ValueError(f"Expected 3D cube(H,W,C), got shape={cube.shape}")
-
     cmin, cmax = cube.min(), cube.max()
     if cmax > cmin:
         cube = (cube - cmin) / (cmax - cmin)
-    cube = cube * 2.0 - 1.0
+    return cube * 2.0 - 1.0
 
+
+def _to_tensor_hsi(cube: np.ndarray, target_size: Tuple[int, int]) -> torch.Tensor:
     tensor = torch.from_numpy(cube).permute(2, 0, 1).contiguous()  # C,H,W
     if target_size is not None:
         tensor = F.interpolate(
@@ -48,53 +46,80 @@ def _try_stack_png_bands(scene_dir: Path) -> Optional[np.ndarray]:
     for p in pngs:
         img = Image.open(p).convert("L")
         bands.append(np.array(img, dtype=np.float32) / 255.0)
-    cube = np.stack(bands, axis=-1)
+    return np.stack(bands, axis=-1)
+
+
+def _ensure_hwc(cube: np.ndarray) -> np.ndarray:
+    if cube.ndim != 3:
+        raise ValueError(f"Expected 3D cube, got shape={cube.shape}")
+    # likely C,H,W -> H,W,C
+    if cube.shape[0] <= 64 and cube.shape[1] > 64 and cube.shape[2] > 64:
+        cube = np.transpose(cube, (1, 2, 0))
     return cube
 
 
+def _random_crop(cube: np.ndarray, crop_size: int) -> np.ndarray:
+    h, w, _ = cube.shape
+    if crop_size <= 0 or (h <= crop_size and w <= crop_size):
+        return cube
+    ch = min(crop_size, h)
+    cw = min(crop_size, w)
+    top = np.random.randint(0, h - ch + 1)
+    left = np.random.randint(0, w - cw + 1)
+    return cube[top : top + ch, left : left + cw, :]
+
+
 class HyperspectralFolderDataset(Dataset):
-    def __init__(self, root: str, image_size: int = 256, channels: Optional[int] = None):
+    def __init__(
+        self,
+        root: str,
+        image_size: int = 256,
+        channels: Optional[int] = None,
+        random_crop_size: int = 256,
+        repeats_per_scene: int = 1,
+    ):
         self.root = Path(root)
         self.target_size = (image_size, image_size)
         self.channels = channels
+        self.random_crop_size = random_crop_size
+        self.repeats_per_scene = max(1, int(repeats_per_scene))
 
-        self.npy_files = sorted(self.root.glob("**/*.npy"))
-        self.mat_files = sorted(self.root.glob("**/*.mat"))
+        npy_files = sorted(self.root.glob("**/*.npy"))
+        mat_files = sorted(self.root.glob("**/*.mat"))
 
-        self.scene_dirs = []
-        if not self.npy_files and not self.mat_files:
-            # fallback: scene folder with per-band png files
+        scene_refs = [("npy", p) for p in npy_files] + [("mat", p) for p in mat_files]
+
+        if not scene_refs:
             for d in sorted(self.root.glob("**/*")):
                 if d.is_dir() and any(d.glob("*.png")):
-                    self.scene_dirs.append(d)
+                    scene_refs.append(("pngdir", d))
 
-        self.length = len(self.npy_files) + len(self.mat_files) + len(self.scene_dirs)
-        if self.length == 0:
+        if not scene_refs:
             raise RuntimeError(
                 f"No hyperspectral samples found in {self.root}. "
                 "Expected .npy cubes, .mat cubes, or scene folders with per-band .png files."
             )
 
+        self.scene_refs = scene_refs
+        self.sample_map = [i for i in range(len(self.scene_refs)) for _ in range(self.repeats_per_scene)]
+
     def __len__(self) -> int:
-        return self.length
+        return len(self.sample_map)
 
-    def __getitem__(self, idx: int) -> torch.Tensor:
-        if idx < len(self.npy_files):
-            cube = np.load(self.npy_files[idx])
-        elif idx < len(self.npy_files) + len(self.mat_files):
-            mat_idx = idx - len(self.npy_files)
-            cube = _load_mat_cube(self.mat_files[mat_idx])
+    def _load_scene_cube(self, scene_idx: int) -> np.ndarray:
+        kind, path = self.scene_refs[scene_idx]
+        if kind == "npy":
+            cube = np.load(path)
+        elif kind == "mat":
+            cube = _load_mat_cube(path)
             if cube is None:
-                raise RuntimeError(f"No 3D cube found in {self.mat_files[mat_idx]}")
+                raise RuntimeError(f"No 3D cube found in {path}")
         else:
-            dir_idx = idx - len(self.npy_files) - len(self.mat_files)
-            cube = _try_stack_png_bands(self.scene_dirs[dir_idx])
+            cube = _try_stack_png_bands(path)
             if cube is None:
-                raise RuntimeError(f"Could not parse png-band scene in {self.scene_dirs[dir_idx]}")
+                raise RuntimeError(f"Could not parse png-band scene in {path}")
 
-        if cube.shape[0] < cube.shape[-1] and cube.shape[1] < cube.shape[-1]:
-            # probably C,H,W -> H,W,C
-            cube = np.transpose(cube, (1, 2, 0))
+        cube = _ensure_hwc(cube)
 
         if self.channels is not None and cube.shape[-1] != self.channels:
             if cube.shape[-1] > self.channels:
@@ -103,4 +128,11 @@ class HyperspectralFolderDataset(Dataset):
                 pad = np.repeat(cube[..., -1:], self.channels - cube.shape[-1], axis=-1)
                 cube = np.concatenate([cube, pad], axis=-1)
 
+        return cube
+
+    def __getitem__(self, idx: int) -> torch.Tensor:
+        scene_idx = self.sample_map[idx]
+        cube = self._load_scene_cube(scene_idx)
+        cube = _random_crop(cube, self.random_crop_size)
+        cube = _normalize_cube(cube)
         return _to_tensor_hsi(cube, target_size=self.target_size)

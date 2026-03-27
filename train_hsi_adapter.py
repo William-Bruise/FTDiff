@@ -46,6 +46,8 @@ def train(args):
         root=args.data_root,
         image_size=args.image_size,
         channels=args.hsi_channels,
+        random_crop_size=args.random_crop_size,
+        repeats_per_scene=args.repeats_per_scene,
     )
 
     if len(dataset) < 2:
@@ -160,7 +162,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_config", type=str, default="configs/model_config.yaml")
     parser.add_argument("--diffusion_config", type=str, default="configs/diffusion_config.yaml")
-    parser.add_argument("--data_root", type=str, default="./data/hsi/cave")
+    parser.add_argument("--data_root", type=str, default="./data/hsi/icvl")
     parser.add_argument("--save_dir", type=str, default="./models/hsi_adapter")
     parser.add_argument("--gpu", type=int, default=0)
 
@@ -172,6 +174,8 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=2)
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--val_ratio", type=float, default=0.1)
+    parser.add_argument("--random_crop_size", type=int, default=256)
+    parser.add_argument("--repeats_per_scene", type=int, default=8)
 
     parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--weight_decay", type=float, default=1e-4)

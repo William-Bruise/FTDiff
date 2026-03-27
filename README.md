@@ -164,10 +164,15 @@ This repo now includes an HSI fine-tuning path that keeps the pretrained diffusi
 - CNN head: HSI -> RGB
 - CNN tail: RGB -> HSI
 
-### 1) Download hyperspectral dataset (CAVE)
+### 1) Download hyperspectral dataset (default: ICVL)
 
 ```bash
-python scripts/download_hsi_dataset.py --output ./data/hsi/cave
+# default uses larger ICVL hyperspectral training data
+python scripts/download_hsi_dataset.py --dataset icvl --output ./data/hsi/icvl
+
+# optional fallbacks
+python scripts/download_hsi_dataset.py --dataset cave --output ./data/hsi/cave
+python scripts/download_hsi_dataset.py --dataset ehu --output ./data/hsi/ehu
 ```
 
 ### 2) Fine-tune adapter on HSI data (256x256)
