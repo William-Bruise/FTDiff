@@ -167,8 +167,11 @@ This repo now includes an HSI fine-tuning path that keeps the pretrained diffusi
 ### 1) Download hyperspectral dataset (default: ICVL)
 
 ```bash
-# default uses larger ICVL hyperspectral training data
+# default uses ICVL on HuggingFace dataset repo (danaroth/icvl)
 python scripts/download_hsi_dataset.py --dataset icvl --output ./data/hsi/icvl
+
+# optional: provide your own direct zip links for icvl
+python scripts/download_hsi_dataset.py --dataset icvl --output ./data/hsi/icvl --source_urls <ZIP1> <ZIP2>
 
 # optional fallbacks
 python scripts/download_hsi_dataset.py --dataset cave --output ./data/hsi/cave

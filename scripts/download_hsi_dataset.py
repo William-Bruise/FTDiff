@@ -1,5 +1,6 @@
 import argparse
 import shutil
+import subprocess
 import zipfile
 from pathlib import Path
 from urllib.request import urlretrieve
@@ -12,10 +13,8 @@ EHU_DATASETS = {
     "ksc": "https://www.ehu.eus/ccwintco/uploads/2/26/KSC.mat",
 }
 
-ICVL_ZIP_SOURCES = [
-    "https://huggingface.co/datasets/anonymous-icvl/hsi-icvl/resolve/main/icvl_hsi_train.zip",
-    "https://huggingface.co/datasets/anonymous-icvl/hsi-icvl/resolve/main/icvl_hsi_val.zip",
-]
+ICVL_HF_REPO_ID = "danaroth/icvl"
+ICVL_HF_REPO_URL = "https://huggingface.co/datasets/danaroth/icvl"
 
 CAVE_ZIP_SOURCES = [
     "https://cave.cs.columbia.edu/old/databases/multispectral/zip/complete_ms_data.zip",
@@ -73,6 +72,49 @@ def _download_zip_dataset(output: Path, cache_dir: Path, source_urls, dataset_na
     print(f"[OK] {dataset_name} downloaded from {succeeded}/{len(source_urls)} sources.")
 
 
+def _download_icvl_from_hf(output: Path, cache_dir: Path):
+    output.mkdir(parents=True, exist_ok=True)
+
+    # Preferred: huggingface_hub snapshot API (handles LFS correctly).
+    try:
+        from huggingface_hub import snapshot_download
+
+        print(f"[HF] snapshot_download dataset repo: {ICVL_HF_REPO_ID}")
+        snapshot_download(
+            repo_id=ICVL_HF_REPO_ID,
+            repo_type="dataset",
+            local_dir=str(output),
+            local_dir_use_symlinks=False,
+            resume_download=True,
+        )
+        return
+    except Exception as e:
+        print(f"[WARN] huggingface_hub snapshot failed: {e}")
+
+    # Fallback: git clone. Requires git-lfs for real large files.
+    repo_dir = cache_dir / "icvl_repo"
+    if not repo_dir.exists():
+        subprocess.run(["git", "clone", ICVL_HF_REPO_URL, str(repo_dir)], check=True)
+
+    # Pull LFS files if possible.
+    try:
+        subprocess.run(["git", "-C", str(repo_dir), "lfs", "pull"], check=True)
+    except Exception as e:
+        print(f"[WARN] git lfs pull failed: {e}")
+
+    for item in repo_dir.iterdir():
+        if item.name == ".git":
+            continue
+        target = output / item.name
+        if item.is_dir():
+            if target.exists():
+                shutil.rmtree(target)
+            shutil.copytree(item, target)
+        else:
+            shutil.copy2(item, target)
+
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, default="icvl", choices=["icvl", "cave", "ehu"])
@@ -83,7 +125,7 @@ def main():
         type=str,
         nargs="+",
         default=None,
-        help="Custom dataset URLs. If omitted, built-in mirrors are used.",
+        help="Custom dataset URLs. Used for cave; for icvl this is optional zip fallback.",
     )
     parser.add_argument("--clean_cache", action="store_true")
     args = parser.parse_args()
@@ -98,8 +140,10 @@ def main():
         urls = args.source_urls if args.source_urls else CAVE_ZIP_SOURCES
         _download_zip_dataset(out_dir, cache_dir, urls, dataset_name="cave")
     else:
-        urls = args.source_urls if args.source_urls else ICVL_ZIP_SOURCES
-        _download_zip_dataset(out_dir, cache_dir, urls, dataset_name="icvl")
+        if args.source_urls:
+            _download_zip_dataset(out_dir, cache_dir, args.source_urls, dataset_name="icvl")
+        else:
+            _download_icvl_from_hf(out_dir, cache_dir)
 
     if args.clean_cache and cache_dir.exists():
         shutil.rmtree(cache_dir)
