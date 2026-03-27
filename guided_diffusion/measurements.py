@@ -199,6 +199,30 @@ class NonlinearBlurOperator(NonLinearOperator):
         blurred = (blurred * 2.0 - 1.0).clamp(-1, 1) #[0, 1] -> [-1, 1]
         return blurred
 
+
+@register_operator(name='snapshot_compressive')
+class SnapshotCompressiveOperator(LinearOperator):
+    """
+    Simplified CASSI-like snapshot compressive sensing:
+    y = sum_c (M_c \odot x_c), and transpose uses back-projection with same masks.
+    """
+
+    def __init__(self, in_shape, mask_seed, device):
+        self.device = device
+        c, h, w = in_shape
+        g = torch.Generator(device='cpu')
+        g.manual_seed(int(mask_seed))
+        self.masks = torch.randint(0, 2, (1, c, h, w), generator=g).float().to(device)
+
+    def forward(self, data, **kwargs):
+        return (data * self.masks).sum(dim=1, keepdim=True)
+
+    def transpose(self, data, **kwargs):
+        return data.repeat(1, self.masks.shape[1], 1, 1) * self.masks
+
+    def project(self, data, measurement, **kwargs):
+        return data - self.transpose(self.forward(data)) + self.transpose(measurement)
+
 # =============
 # Noise classes
 # =============
