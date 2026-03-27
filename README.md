@@ -156,3 +156,52 @@ url={https://openreview.net/forum?id=OnD9zGAGT0k}
 }
 ```
 
+
+
+## Hyperspectral fine-tuning (CNN head/tail + frozen diffusion core)
+
+This repo now includes an HSI fine-tuning path that keeps the pretrained diffusion U-Net frozen and only trains:
+- CNN head: HSI -> RGB
+- CNN tail: RGB -> HSI
+
+### 1) Download hyperspectral dataset (default: CAVE)
+
+```bash
+# default uses CAVE (official Columbia zip + mirror fallback)
+python scripts/download_hsi_dataset.py --dataset cave --output ./data/hsi/cave
+
+# optional datasets
+python scripts/download_hsi_dataset.py --dataset ehu --output ./data/hsi/ehu
+
+# ICVL via SharePoint/HF fallback
+python scripts/download_hsi_dataset.py --dataset icvl --output ./data/hsi/icvl
+
+# if you manually downloaded ICVL zip from SharePoint, use local zip directly
+python scripts/download_hsi_dataset.py --dataset icvl --output ./data/hsi/icvl --local_zip /path/to/icvl.zip --only_mat
+```
+
+### 2) Fine-tune adapter on HSI data (256x256)
+
+```bash
+bash scripts/run_hsi_finetune.sh
+```
+
+### 3) Run HSI restoration tasks
+
+```bash
+bash scripts/run_hsi_restoration.sh
+```
+
+Tasks covered in `scripts/run_hsi_restoration.sh`:
+- Inpainting
+- Denoising
+- Super-resolution
+- Snapshot compressive imaging
+- Deblurring
+
+Main added scripts:
+- `train_hsi_adapter.py`
+- `sample_condition_hsi.py`
+- `scripts/download_hsi_dataset.py`
+- `scripts/run_hsi_finetune.sh`
+- `scripts/run_hsi_restoration.sh`
