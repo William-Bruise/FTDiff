@@ -4,8 +4,8 @@ set -euo pipefail
 GPU=${GPU:-0}
 MODEL_CONFIG=${MODEL_CONFIG:-configs/model_config.yaml}
 DIFFUSION_CONFIG=${DIFFUSION_CONFIG:-configs/diffusion_config.yaml}
-DATASET_NAME=${DATASET_NAME:-icvl}
-DATA_ROOT=${DATA_ROOT:-./data/hsi/icvl}
+DATASET_NAME=${DATASET_NAME:-cave}
+DATA_ROOT=${DATA_ROOT:-./data/hsi/cave}
 SAVE_DIR=${SAVE_DIR:-./models/hsi_adapter}
 HSI_CHANNELS=${HSI_CHANNELS:-31}
 

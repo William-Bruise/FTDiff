@@ -5,7 +5,7 @@ conditioning:
 
 data:
   name: hsi
-  root: ./data/hsi/icvl
+  root: ./data/hsi/cave
   image_size: 256
 
 measurement:

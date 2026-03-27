@@ -15,6 +15,9 @@ EHU_DATASETS = {
 
 ICVL_HF_REPO_ID = "danaroth/icvl"
 ICVL_HF_REPO_URL = "https://huggingface.co/datasets/danaroth/icvl"
+ICVL_SHAREPOINT_SOURCES = [
+    "https://bgu365.sharepoint.com/sites/ICVL/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FICVL%2FShared%20Documents%2FDatasets%2FHS&download=1",
+]
 
 CAVE_ZIP_SOURCES = [
     "https://cave.cs.columbia.edu/old/databases/multispectral/zip/complete_ms_data.zip",
@@ -75,7 +78,6 @@ def _download_zip_dataset(output: Path, cache_dir: Path, source_urls, dataset_na
 def _download_icvl_from_hf(output: Path, cache_dir: Path):
     output.mkdir(parents=True, exist_ok=True)
 
-    # Preferred: huggingface_hub snapshot API (handles LFS correctly).
     try:
         from huggingface_hub import snapshot_download
 
@@ -91,16 +93,16 @@ def _download_icvl_from_hf(output: Path, cache_dir: Path):
     except Exception as e:
         print(f"[WARN] huggingface_hub snapshot failed: {e}")
 
-    # Fallback: git clone. Requires git-lfs for real large files.
     repo_dir = cache_dir / "icvl_repo"
-    if not repo_dir.exists():
-        subprocess.run(["git", "clone", ICVL_HF_REPO_URL, str(repo_dir)], check=True)
-
-    # Pull LFS files if possible.
     try:
-        subprocess.run(["git", "-C", str(repo_dir), "lfs", "pull"], check=True)
+        if not repo_dir.exists():
+            subprocess.run(["git", "clone", ICVL_HF_REPO_URL, str(repo_dir)], check=True)
+        try:
+            subprocess.run(["git", "-C", str(repo_dir), "lfs", "pull"], check=True)
+        except Exception as e:
+            print(f"[WARN] git lfs pull failed: {e}")
     except Exception as e:
-        print(f"[WARN] git lfs pull failed: {e}")
+        raise RuntimeError(f"ICVL(HuggingFace) unreachable: {e}") from e
 
     for item in repo_dir.iterdir():
         if item.name == ".git":
@@ -115,18 +117,25 @@ def _download_icvl_from_hf(output: Path, cache_dir: Path):
 
 
 
+def _keep_only_mat(output: Path):
+    for p in output.rglob("*"):
+        if p.is_file() and p.suffix.lower() != ".mat":
+            p.unlink(missing_ok=True)
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", type=str, default="icvl", choices=["icvl", "cave", "ehu"])
-    parser.add_argument("--output", type=str, default="./data/hsi/icvl")
+    parser.add_argument("--dataset", type=str, default="cave", choices=["cave", "ehu", "icvl"])
+    parser.add_argument("--output", type=str, default="./data/hsi/cave")
     parser.add_argument("--cache_dir", type=str, default="./data/hsi/.cache")
     parser.add_argument(
         "--source_urls",
         type=str,
         nargs="+",
         default=None,
-        help="Custom dataset URLs. Used for cave; for icvl this is optional zip fallback.",
+        help="Custom dataset URLs. Used for cave (and optional icvl zip fallback).",
     )
+    parser.add_argument("--local_zip", type=str, default=None, help="Path to a manually downloaded zip file (e.g., ICVL SharePoint zip).")
+    parser.add_argument("--only_mat", action="store_true", help="After extraction, keep only .mat files.")
     parser.add_argument("--clean_cache", action="store_true")
     args = parser.parse_args()
 
@@ -136,14 +145,35 @@ def main():
 
     if args.dataset == "ehu":
         _download_ehu(out_dir, cache_dir)
+
     elif args.dataset == "cave":
         urls = args.source_urls if args.source_urls else CAVE_ZIP_SOURCES
         _download_zip_dataset(out_dir, cache_dir, urls, dataset_name="cave")
-    else:
-        if args.source_urls:
+
+    else:  # icvl
+        if args.local_zip:
+            _extract(Path(args.local_zip), out_dir)
+        elif args.source_urls:
             _download_zip_dataset(out_dir, cache_dir, args.source_urls, dataset_name="icvl")
         else:
-            _download_icvl_from_hf(out_dir, cache_dir)
+            try:
+                _download_zip_dataset(out_dir, cache_dir, ICVL_SHAREPOINT_SOURCES, dataset_name="icvl_sharepoint")
+            except Exception as sp_e:
+                print(f"[WARN] ICVL SharePoint download failed: {sp_e}")
+                try:
+                    _download_icvl_from_hf(out_dir, cache_dir)
+                except Exception as e:
+                    print(f"[WARN] ICVL download failed: {e}")
+                    print("[Fallback] Switching to CAVE download...")
+                    try:
+                        _download_zip_dataset(out_dir, cache_dir, CAVE_ZIP_SOURCES, dataset_name="cave")
+                    except Exception as cave_e:
+                        print(f"[WARN] CAVE fallback failed: {cave_e}")
+                        print("[Fallback] Switching to EHU download...")
+                        _download_ehu(out_dir, cache_dir)
+
+    if args.only_mat:
+        _keep_only_mat(out_dir)
 
     if args.clean_cache and cache_dir.exists():
         shutil.rmtree(cache_dir)

@@ -162,7 +162,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_config", type=str, default="configs/model_config.yaml")
     parser.add_argument("--diffusion_config", type=str, default="configs/diffusion_config.yaml")
-    parser.add_argument("--data_root", type=str, default="./data/hsi/icvl")
+    parser.add_argument("--data_root", type=str, default="./data/hsi/cave")
     parser.add_argument("--save_dir", type=str, default="./models/hsi_adapter")
     parser.add_argument("--gpu", type=int, default=0)
 

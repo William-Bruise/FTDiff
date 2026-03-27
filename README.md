@@ -164,18 +164,20 @@ This repo now includes an HSI fine-tuning path that keeps the pretrained diffusi
 - CNN head: HSI -> RGB
 - CNN tail: RGB -> HSI
 
-### 1) Download hyperspectral dataset (default: ICVL)
+### 1) Download hyperspectral dataset (default: CAVE)
 
 ```bash
-# default uses ICVL on HuggingFace dataset repo (danaroth/icvl)
+# default uses CAVE (official Columbia zip + mirror fallback)
+python scripts/download_hsi_dataset.py --dataset cave --output ./data/hsi/cave
+
+# optional datasets
+python scripts/download_hsi_dataset.py --dataset ehu --output ./data/hsi/ehu
+
+# ICVL via SharePoint/HF fallback
 python scripts/download_hsi_dataset.py --dataset icvl --output ./data/hsi/icvl
 
-# optional: provide your own direct zip links for icvl
-python scripts/download_hsi_dataset.py --dataset icvl --output ./data/hsi/icvl --source_urls <ZIP1> <ZIP2>
-
-# optional fallbacks
-python scripts/download_hsi_dataset.py --dataset cave --output ./data/hsi/cave
-python scripts/download_hsi_dataset.py --dataset ehu --output ./data/hsi/ehu
+# if you manually downloaded ICVL zip from SharePoint, use local zip directly
+python scripts/download_hsi_dataset.py --dataset icvl --output ./data/hsi/icvl --local_zip /path/to/icvl.zip --only_mat
 ```
 
 ### 2) Fine-tune adapter on HSI data (256x256)
