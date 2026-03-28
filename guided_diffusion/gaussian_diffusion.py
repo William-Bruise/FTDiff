@@ -202,7 +202,12 @@ class GaussianDiffusion:
             if record:
                 if idx % 10 == 0:
                     file_path = os.path.join(save_root, f"progress/x_{str(idx).zfill(4)}.png")
-                    plt.imsave(file_path, clear_color(img))
+                    vis_img = img
+                    if vis_img.shape[1] == 1:
+                        vis_img = vis_img.repeat(1, 3, 1, 1)
+                    elif vis_img.shape[1] > 3:
+                        vis_img = vis_img[:, :3, :, :]
+                    plt.imsave(file_path, clear_color(vis_img))
 
         return img       
         
