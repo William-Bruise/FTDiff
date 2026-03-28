@@ -18,17 +18,20 @@ python train_hsi_adapter.py \
   --save_dir "$SAVE_DIR" \
   --gpu "$GPU" \
   --hsi_channels "$HSI_CHANNELS" \
-  --image_size 256 \
-  --random_crop_size 256 \
-  --repeats_per_scene 32 \
+  --image_size 128 \
+  --random_crop_size 128 \
+  --use_grid_patches \
+  --grid_patch_size 128 \
+  --rotation_aug \
+  --repeats_per_scene 1 \
   --adapter_hidden_channels 128 \
   --adapter_num_blocks 4 \
   --epochs 200 \
-  --batch_size 1 \
+  --batch_size 4 \
   --num_workers 4 \
-  --lr 1e-4 \
+  --lr 2e-4 \
   --weight_decay 5e-5 \
   --grad_clip 1.0 \
-  --grad_accum_steps 4 \
+  --grad_accum_steps 1 \
   --warmup_ratio 0.05 \
   --min_lr_scale 0.1

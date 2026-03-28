@@ -79,6 +79,9 @@ def train(args):
         channels=args.hsi_channels,
         random_crop_size=args.random_crop_size,
         repeats_per_scene=args.repeats_per_scene,
+        use_grid_patches=args.use_grid_patches,
+        grid_patch_size=args.grid_patch_size,
+        rotation_aug=args.rotation_aug,
     )
 
     if len(dataset) < 2:
@@ -230,22 +233,25 @@ if __name__ == "__main__":
     parser.add_argument("--save_dir", type=str, default="./models/hsi_adapter")
     parser.add_argument("--gpu", type=int, default=0)
 
-    parser.add_argument("--image_size", type=int, default=256)
+    parser.add_argument("--image_size", type=int, default=128)
     parser.add_argument("--hsi_channels", type=int, default=31)
     parser.add_argument("--adapter_hidden_channels", type=int, default=128)
     parser.add_argument("--adapter_num_blocks", type=int, default=4)
 
     parser.add_argument("--epochs", type=int, default=80)
-    parser.add_argument("--batch_size", type=int, default=1)
+    parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--val_ratio", type=float, default=0.1)
-    parser.add_argument("--random_crop_size", type=int, default=256)
+    parser.add_argument("--random_crop_size", type=int, default=128)
+    parser.add_argument("--use_grid_patches", action="store_true")
+    parser.add_argument("--grid_patch_size", type=int, default=128)
+    parser.add_argument("--rotation_aug", action="store_true")
     parser.add_argument("--repeats_per_scene", type=int, default=32)
 
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight_decay", type=float, default=5e-5)
     parser.add_argument("--grad_clip", type=float, default=1.0)
-    parser.add_argument("--grad_accum_steps", type=int, default=4)
+    parser.add_argument("--grad_accum_steps", type=int, default=1)
     parser.add_argument("--warmup_ratio", type=float, default=0.05)
     parser.add_argument("--min_lr_scale", type=float, default=0.1)
     parser.add_argument("--t_min_ratio", type=float, default=0.0)
