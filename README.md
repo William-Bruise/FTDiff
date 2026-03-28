@@ -156,3 +156,68 @@ url={https://openreview.net/forum?id=OnD9zGAGT0k}
 }
 ```
 
+
+
+## Hyperspectral fine-tuning (CNN head/tail + frozen diffusion core)
+
+This repo now includes an HSI fine-tuning path that keeps the pretrained diffusion U-Net frozen and only trains:
+- CNN head: HSI -> RGB
+- CNN tail: RGB -> HSI
+
+### 1) Download hyperspectral dataset (default: CAVE)
+
+```bash
+## default uses CAVE (official Columbia zip)
+python scripts/download_hsi_dataset.py --dataset cave --output ./data/hsi/cave
+
+# optional datasets
+python scripts/download_hsi_dataset.py --dataset ehu --output ./data/hsi/ehu
+
+# ICVL via SharePoint URL or custom source_urls
+python scripts/download_hsi_dataset.py --dataset icvl --output ./data/hsi/icvl
+
+# if you manually downloaded ICVL zip from SharePoint, use local zip directly
+python scripts/download_hsi_dataset.py --dataset icvl --output ./data/hsi/icvl --local_zip /path/to/icvl.zip --only_mat
+```
+
+### 2) Fine-tune adapter on HSI data (256x256)
+
+`run_hsi_finetune.sh` will skip dataset download automatically if `.mat/.npy` files already exist in `DATA_ROOT`.
+
+Note: during adapter fine-tuning, `train_hsi_adapter.py` will force `use_checkpoint=False` from model config to avoid autograd errors when the diffusion core is frozen.
+
+```bash
+bash scripts/run_hsi_finetune.sh
+```
+
+### 3) Run HSI restoration tasks
+
+```bash
+bash scripts/run_hsi_restoration.sh
+```
+
+Tasks covered in `scripts/run_hsi_restoration.sh`:
+- Inpainting
+- Denoising
+- Super-resolution
+- Snapshot compressive imaging
+- Deblurring
+
+Main added scripts:
+- `train_hsi_adapter.py`
+- `sample_condition_hsi.py`
+- `scripts/download_hsi_dataset.py`
+- `scripts/run_hsi_finetune.sh`
+- `scripts/run_hsi_restoration.sh`
+
+
+Adapter defaults are set to a deeper residual head/tail for stronger HSI adaptation:
+- `--adapter_hidden_channels 128`
+- `--adapter_num_blocks 4`
+
+
+Recommended stable HSI fine-tuning defaults (for lower loss with limited VRAM):
+- `batch_size=1` + `grad_accum_steps=4` (effective batch size 4)
+- `epochs=200`, `lr=1e-4`, `weight_decay=5e-5`
+- cosine LR schedule with `warmup_ratio=0.05`, `min_lr_scale=0.1`
+- `repeats_per_scene=32`
