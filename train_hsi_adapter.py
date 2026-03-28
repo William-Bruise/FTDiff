@@ -1,10 +1,12 @@
 import argparse
+import math
 import os
 from pathlib import Path
 
 import torch
 import torch.nn.functional as F
 from torch.optim import AdamW
+from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, random_split
 from tqdm.auto import tqdm
 import yaml
@@ -25,6 +27,20 @@ def extract(arr, t, shape, device):
     while len(vals.shape) < len(shape):
         vals = vals[..., None]
     return vals
+
+
+def build_scheduler(optimizer, warmup_steps: int, total_steps: int, min_lr_scale: float = 0.1):
+    warmup_steps = max(1, warmup_steps)
+    total_steps = max(warmup_steps + 1, total_steps)
+
+    def lr_lambda(step: int):
+        if step < warmup_steps:
+            return float(step + 1) / float(warmup_steps)
+        progress = float(step - warmup_steps) / float(max(1, total_steps - warmup_steps))
+        cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
+        return min_lr_scale + (1.0 - min_lr_scale) * cosine
+
+    return LambdaLR(optimizer, lr_lambda=lr_lambda)
 
 
 def train(args):
@@ -87,17 +103,29 @@ def train(args):
         print("[WARN] AMP requested but CUDA is unavailable. AMP disabled.")
     scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
 
+    updates_per_epoch = math.ceil(len(train_loader) / args.grad_accum_steps)
+    total_updates = max(1, updates_per_epoch * args.epochs)
+    warmup_updates = max(1, int(total_updates * args.warmup_ratio))
+    scheduler = build_scheduler(
+        optim,
+        warmup_steps=warmup_updates,
+        total_steps=total_updates,
+        min_lr_scale=args.min_lr_scale,
+    )
+
     out_dir = Path(args.save_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     best_val = float("inf")
     global_step = 0
+
     for epoch in range(1, args.epochs + 1):
         adapter_model.train()
         train_losses = []
+        optim.zero_grad(set_to_none=True)
 
         pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{args.epochs}")
-        for x0 in pbar:
+        for iter_idx, x0 in enumerate(pbar):
             x0 = x0.to(device, non_blocking=True)
             b = x0.shape[0]
             t = torch.randint(0, sampler.num_timesteps, (b,), device=device)
@@ -105,29 +133,40 @@ def train(args):
             x_t = extract(sampler.sqrt_alphas_cumprod, t, x0.shape, device) * x0 + \
                 extract(sampler.sqrt_one_minus_alphas_cumprod, t, x0.shape, device) * noise
 
-            optim.zero_grad(set_to_none=True)
             with torch.amp.autocast(device_type=device.type, enabled=amp_enabled):
                 pred = adapter_model(x_t, sampler._scale_timesteps(t))
                 if pred.shape[1] == 2 * x0.shape[1]:
                     pred, _ = torch.chunk(pred, 2, dim=1)
                 loss = F.mse_loss(pred, noise)
+                loss_for_backward = loss / args.grad_accum_steps
 
             if amp_enabled:
-                scaler.scale(loss).backward()
-                if args.grad_clip > 0:
-                    scaler.unscale_(optim)
-                    torch.nn.utils.clip_grad_norm_(adapter_model.trainable_parameters(), args.grad_clip)
-                scaler.step(optim)
-                scaler.update()
+                scaler.scale(loss_for_backward).backward()
             else:
-                loss.backward()
-                if args.grad_clip > 0:
-                    torch.nn.utils.clip_grad_norm_(adapter_model.trainable_parameters(), args.grad_clip)
-                optim.step()
+                loss_for_backward.backward()
 
-            global_step += 1
+            should_step = ((iter_idx + 1) % args.grad_accum_steps == 0) or ((iter_idx + 1) == len(train_loader))
+            if should_step:
+                if args.grad_clip > 0:
+                    if amp_enabled:
+                        scaler.unscale_(optim)
+                    torch.nn.utils.clip_grad_norm_(adapter_model.trainable_parameters(), args.grad_clip)
+
+                if amp_enabled:
+                    scaler.step(optim)
+                    scaler.update()
+                else:
+                    optim.step()
+
+                optim.zero_grad(set_to_none=True)
+                scheduler.step()
+                global_step += 1
+
             train_losses.append(loss.item())
-            pbar.set_postfix({"loss": f"{sum(train_losses) / len(train_losses):.4f}"})
+            pbar.set_postfix({
+                "loss": f"{sum(train_losses) / len(train_losses):.4f}",
+                "lr": f"{optim.param_groups[0]['lr']:.2e}",
+            })
 
         # validation
         adapter_model.eval()
@@ -147,7 +186,7 @@ def train(args):
 
         mean_train = sum(train_losses) / max(1, len(train_losses))
         mean_val = sum(val_losses) / max(1, len(val_losses))
-        print(f"[Epoch {epoch}] train={mean_train:.6f} val={mean_val:.6f}")
+        print(f"[Epoch {epoch}] train={mean_train:.6f} val={mean_val:.6f} lr={optim.param_groups[0]['lr']:.3e}")
 
         last_ckpt = out_dir / "hsi_adapter_last.pt"
         torch.save({
@@ -185,16 +224,19 @@ if __name__ == "__main__":
     parser.add_argument("--adapter_hidden_channels", type=int, default=128)
     parser.add_argument("--adapter_num_blocks", type=int, default=4)
 
-    parser.add_argument("--epochs", type=int, default=20)
-    parser.add_argument("--batch_size", type=int, default=2)
+    parser.add_argument("--epochs", type=int, default=80)
+    parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--val_ratio", type=float, default=0.1)
     parser.add_argument("--random_crop_size", type=int, default=256)
-    parser.add_argument("--repeats_per_scene", type=int, default=8)
+    parser.add_argument("--repeats_per_scene", type=int, default=32)
 
-    parser.add_argument("--lr", type=float, default=2e-4)
-    parser.add_argument("--weight_decay", type=float, default=1e-4)
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--weight_decay", type=float, default=5e-5)
     parser.add_argument("--grad_clip", type=float, default=1.0)
+    parser.add_argument("--grad_accum_steps", type=int, default=4)
+    parser.add_argument("--warmup_ratio", type=float, default=0.05)
+    parser.add_argument("--min_lr_scale", type=float, default=0.1)
     parser.add_argument("--amp", action="store_true")
 
     args = parser.parse_args()

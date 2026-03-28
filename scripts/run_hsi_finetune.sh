@@ -20,12 +20,15 @@ python train_hsi_adapter.py \
   --hsi_channels "$HSI_CHANNELS" \
   --image_size 256 \
   --random_crop_size 256 \
-  --repeats_per_scene 8 \
+  --repeats_per_scene 32 \
   --adapter_hidden_channels 128 \
   --adapter_num_blocks 4 \
-  --epochs 20 \
-  --batch_size 2 \
+  --epochs 200 \
+  --batch_size 1 \
   --num_workers 4 \
-  --lr 2e-4 \
-  --weight_decay 1e-4 \
-  --grad_clip 1.0
+  --lr 1e-4 \
+  --weight_decay 5e-5 \
+  --grad_clip 1.0 \
+  --grad_accum_steps 4 \
+  --warmup_ratio 0.05 \
+  --min_lr_scale 0.1

@@ -214,3 +214,10 @@ Main added scripts:
 Adapter defaults are set to a deeper residual head/tail for stronger HSI adaptation:
 - `--adapter_hidden_channels 128`
 - `--adapter_num_blocks 4`
+
+
+Recommended stable HSI fine-tuning defaults (for lower loss with limited VRAM):
+- `batch_size=1` + `grad_accum_steps=4` (effective batch size 4)
+- `epochs=200`, `lr=1e-4`, `weight_decay=5e-5`
+- cosine LR schedule with `warmup_ratio=0.05`, `min_lr_scale=0.1`
+- `repeats_per_scene=32`
