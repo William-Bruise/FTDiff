@@ -23,9 +23,9 @@ class ConvHead(nn.Module):
     def __init__(
         self,
         in_channels: int,
-        hidden_channels: int = 128,
+        hidden_channels: int = 256,
         out_channels: int = 3,
-        num_blocks: int = 4,
+        num_blocks: int = 8,
     ):
         super().__init__()
         groups = 8 if hidden_channels % 8 == 0 else 1
@@ -48,9 +48,9 @@ class ConvTail(nn.Module):
     def __init__(
         self,
         in_channels: int = 3,
-        hidden_channels: int = 128,
+        hidden_channels: int = 256,
         out_channels: int = 31,
-        num_blocks: int = 4,
+        num_blocks: int = 8,
     ):
         super().__init__()
         groups = 8 if hidden_channels % 8 == 0 else 1
@@ -82,8 +82,8 @@ class FrozenDiffusionWithAdapters(nn.Module):
         self,
         core_model: nn.Module,
         hsi_channels: int,
-        adapter_hidden_channels: int = 128,
-        adapter_num_blocks: int = 4,
+        adapter_hidden_channels: int = 256,
+        adapter_num_blocks: int = 8,
         freeze_core: bool = True,
     ):
         super().__init__()
@@ -131,7 +131,7 @@ def build_hsi_adapter_model(
     core_model: nn.Module,
     hsi_channels: int,
     adapter_hidden_channels: int,
-    adapter_num_blocks: int = 4,
+    adapter_num_blocks: int = 8,
     freeze_core: bool = True,
 ) -> FrozenDiffusionWithAdapters:
     return FrozenDiffusionWithAdapters(

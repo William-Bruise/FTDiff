@@ -24,14 +24,16 @@ python train_hsi_adapter.py \
   --grid_patch_size 128 \
   --rotation_aug \
   --repeats_per_scene 1 \
-  --adapter_hidden_channels 128 \
-  --adapter_num_blocks 4 \
-  --epochs 200 \
-  --batch_size 4 \
+  --adapter_hidden_channels 256 \
+  --adapter_num_blocks 8 \
+  --epochs 400 \
+  --batch_size 32 \
   --num_workers 4 \
   --lr 2e-4 \
   --weight_decay 5e-5 \
   --grad_clip 1.0 \
   --grad_accum_steps 1 \
   --warmup_ratio 0.05 \
-  --min_lr_scale 0.1
+  --min_lr_scale 0.1 \
+  --t_max_start_ratio 1.0 \
+  --t_max_end_ratio 1.0

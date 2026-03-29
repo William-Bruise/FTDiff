@@ -212,13 +212,13 @@ Main added scripts:
 
 
 Adapter defaults are set to a deeper residual head/tail for stronger HSI adaptation:
-- `--adapter_hidden_channels 128`
-- `--adapter_num_blocks 4`
+- `--adapter_hidden_channels 256`
+- `--adapter_num_blocks 8`
 
 
 Recommended stable HSI fine-tuning defaults (for lower loss with limited VRAM):
-- `batch_size=4` + `grad_accum_steps=1`
-- `epochs=200`, `lr=2e-4`, `weight_decay=5e-5`
+- `batch_size=32` + `grad_accum_steps=1`
+- `epochs=400`, `lr=2e-4`, `weight_decay=5e-5`
 - cosine LR schedule with `warmup_ratio=0.05`, `min_lr_scale=0.1`
 - `use_grid_patches + grid_patch_size=128` with `rotation_aug`
 
@@ -227,4 +227,4 @@ HSI augmentation defaults for stronger fine-tuning:
 - 90°/180°/270° rotation augmentation (`--rotation_aug`)
 - Grid patch augmentation (`--use_grid_patches --grid_patch_size 128`)
   - for 512x512 scenes this yields 16 non-overlap patches (128x128 each)
-- Train directly on 128x128 patches (`--image_size 128`, `--batch_size 4`)
+- Train directly on 128x128 patches (`--image_size 128`, `--batch_size 32`)
