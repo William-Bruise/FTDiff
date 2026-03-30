@@ -156,3 +156,79 @@ url={https://openreview.net/forum?id=OnD9zGAGT0k}
 }
 ```
 
+
+
+## Hyperspectral fine-tuning (parameter-efficient + frozen diffusion core)
+
+This repo now includes an HSI fine-tuning path that keeps the pretrained diffusion U-Net frozen and only trains parameter-efficient modules:
+- lightweight spectral 1x1 projection: HSI -> RGB
+- lightweight spectral 1x1 projection: RGB -> HSI
+- optional rank-limited LoRA parameters in core Conv layers
+
+### 1) Download hyperspectral dataset (default: CAVE)
+
+```bash
+## default uses CAVE (official Columbia zip)
+python scripts/download_hsi_dataset.py --dataset cave --output ./data/hsi/cave
+
+# optional datasets
+python scripts/download_hsi_dataset.py --dataset ehu --output ./data/hsi/ehu
+
+# ICVL via SharePoint URL or custom source_urls
+python scripts/download_hsi_dataset.py --dataset icvl --output ./data/hsi/icvl
+
+# if you manually downloaded ICVL zip from SharePoint, use local zip directly
+python scripts/download_hsi_dataset.py --dataset icvl --output ./data/hsi/icvl --local_zip /path/to/icvl.zip --only_mat
+```
+
+### 2) Fine-tune adapter on HSI data (256x256)
+
+`run_hsi_finetune.sh` will skip dataset download automatically if `.mat/.npy` files already exist in `DATA_ROOT`.
+
+Note: during adapter fine-tuning, `train_hsi_adapter.py` will force `use_checkpoint=False` from model config to avoid autograd errors when the diffusion core is frozen.
+
+```bash
+bash scripts/run_hsi_finetune.sh
+```
+
+### 3) Run HSI restoration tasks
+
+```bash
+bash scripts/run_hsi_restoration.sh
+```
+
+Tasks covered in `scripts/run_hsi_restoration.sh`:
+- Inpainting
+- Denoising
+- Super-resolution
+- Snapshot compressive imaging
+- Deblurring
+
+Main added scripts:
+- `train_hsi_adapter.py`
+- `sample_condition_hsi.py`
+- `scripts/download_hsi_dataset.py`
+- `scripts/run_hsi_finetune.sh`
+- `scripts/run_hsi_restoration.sh`
+
+
+Adapter defaults use parameter-efficient spectral projections (no deep CNN head/tail).
+
+
+Recommended stable HSI fine-tuning defaults (for lower loss with limited VRAM):
+- `batch_size=32` + `grad_accum_steps=1`
+- `epochs=400`, `lr=2e-4`, `weight_decay=5e-5`
+- cosine LR schedule with `warmup_ratio=0.05`, `min_lr_scale=0.1`
+- `use_grid_patches + grid_patch_size=128` with `rotation_aug`
+
+
+HSI augmentation defaults for stronger fine-tuning:
+- 90°/180°/270° rotation augmentation (`--rotation_aug`)
+- Grid patch augmentation (`--use_grid_patches --grid_patch_size 128`)
+  - for 512x512 scenes this yields 16 non-overlap patches (128x128 each)
+- Train directly on 128x128 patches (`--image_size 128`, `--batch_size 32`)
+
+
+Core PEFT option:
+- enable rank-1 LoRA on frozen diffusion core conv layers with:
+  - `--core_peft lora --lora_rank 1 --lora_alpha 1.0`
