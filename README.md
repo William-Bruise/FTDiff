@@ -158,11 +158,12 @@ url={https://openreview.net/forum?id=OnD9zGAGT0k}
 
 
 
-## Hyperspectral fine-tuning (CNN head/tail + frozen diffusion core)
+## Hyperspectral fine-tuning (parameter-efficient + frozen diffusion core)
 
-This repo now includes an HSI fine-tuning path that keeps the pretrained diffusion U-Net frozen and only trains:
-- CNN head: HSI -> RGB
-- CNN tail: RGB -> HSI
+This repo now includes an HSI fine-tuning path that keeps the pretrained diffusion U-Net frozen and only trains parameter-efficient modules:
+- lightweight spectral 1x1 projection: HSI -> RGB
+- lightweight spectral 1x1 projection: RGB -> HSI
+- optional rank-limited LoRA parameters in core Conv layers
 
 ### 1) Download hyperspectral dataset (default: CAVE)
 
@@ -211,9 +212,7 @@ Main added scripts:
 - `scripts/run_hsi_restoration.sh`
 
 
-Adapter defaults are set to a deeper residual head/tail for stronger HSI adaptation:
-- `--adapter_hidden_channels 256`
-- `--adapter_num_blocks 8`
+Adapter defaults use parameter-efficient spectral projections (no deep CNN head/tail).
 
 
 Recommended stable HSI fine-tuning defaults (for lower loss with limited VRAM):
@@ -228,3 +227,8 @@ HSI augmentation defaults for stronger fine-tuning:
 - Grid patch augmentation (`--use_grid_patches --grid_patch_size 128`)
   - for 512x512 scenes this yields 16 non-overlap patches (128x128 each)
 - Train directly on 128x128 patches (`--image_size 128`, `--batch_size 32`)
+
+
+Core PEFT option:
+- enable rank-1 LoRA on frozen diffusion core conv layers with:
+  - `--core_peft lora --lora_rank 1 --lora_alpha 1.0`

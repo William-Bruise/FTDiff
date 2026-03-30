@@ -68,9 +68,10 @@ def train(args):
     adapter_model = build_hsi_adapter_model(
         core_model=base_model,
         hsi_channels=args.hsi_channels,
-        adapter_hidden_channels=args.adapter_hidden_channels,
-        adapter_num_blocks=args.adapter_num_blocks,
         freeze_core=True,
+        core_peft=args.core_peft,
+        lora_rank=args.lora_rank,
+        lora_alpha=args.lora_alpha,
     ).to(device)
 
     dataset = HyperspectralFolderDataset(
@@ -235,8 +236,9 @@ if __name__ == "__main__":
 
     parser.add_argument("--image_size", type=int, default=128)
     parser.add_argument("--hsi_channels", type=int, default=31)
-    parser.add_argument("--adapter_hidden_channels", type=int, default=256)
-    parser.add_argument("--adapter_num_blocks", type=int, default=8)
+    parser.add_argument("--core_peft", type=str, default="lora", choices=["none", "lora"])
+    parser.add_argument("--lora_rank", type=int, default=1)
+    parser.add_argument("--lora_alpha", type=float, default=1.0)
 
     parser.add_argument("--epochs", type=int, default=400)
     parser.add_argument("--batch_size", type=int, default=32)

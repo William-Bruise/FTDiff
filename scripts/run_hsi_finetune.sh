@@ -24,8 +24,9 @@ python train_hsi_adapter.py \
   --grid_patch_size 128 \
   --rotation_aug \
   --repeats_per_scene 1 \
-  --adapter_hidden_channels 256 \
-  --adapter_num_blocks 8 \
+  --core_peft lora \
+  --lora_rank 1 \
+  --lora_alpha 1.0 \
   --epochs 400 \
   --batch_size 32 \
   --num_workers 4 \
