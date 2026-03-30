@@ -60,18 +60,21 @@ def train(args):
     model_cfg = load_yaml(args.model_config)
     diffusion_cfg = load_yaml(args.diffusion_config)
 
-    if model_cfg.get("use_checkpoint", False):
-        print("[WARN] use_checkpoint=True is incompatible with frozen-core adapter training. Forcing use_checkpoint=False.")
+    if args.disable_checkpoint:
         model_cfg["use_checkpoint"] = False
 
     base_model = create_model(**model_cfg).to(device)
     adapter_model = build_hsi_adapter_model(
         core_model=base_model,
         hsi_channels=args.hsi_channels,
+        adapter_hidden_channels=args.adapter_hidden_channels,
+        adapter_num_blocks=args.adapter_num_blocks,
         freeze_core=True,
         core_peft=args.core_peft,
         lora_rank=args.lora_rank,
         lora_alpha=args.lora_alpha,
+        lora_conv2d_target=args.lora_conv2d_target,
+        lora_enable_conv1d=args.lora_enable_conv1d,
     ).to(device)
 
     dataset = HyperspectralFolderDataset(
@@ -236,9 +239,14 @@ if __name__ == "__main__":
 
     parser.add_argument("--image_size", type=int, default=128)
     parser.add_argument("--hsi_channels", type=int, default=31)
-    parser.add_argument("--core_peft", type=str, default="lora", choices=["none", "lora"])
+    parser.add_argument("--adapter_hidden_channels", type=int, default=256)
+    parser.add_argument("--adapter_num_blocks", type=int, default=8)
+    parser.add_argument("--core_peft", type=str, default="none", choices=["none", "lora"])
     parser.add_argument("--lora_rank", type=int, default=1)
     parser.add_argument("--lora_alpha", type=float, default=1.0)
+    parser.add_argument("--lora_conv2d_target", type=str, default="1x1", choices=["1x1", "all"])
+    parser.add_argument("--lora_enable_conv1d", action="store_true")
+    parser.add_argument("--disable_checkpoint", action="store_true")
 
     parser.add_argument("--epochs", type=int, default=400)
     parser.add_argument("--batch_size", type=int, default=32)
@@ -257,9 +265,9 @@ if __name__ == "__main__":
     parser.add_argument("--warmup_ratio", type=float, default=0.05)
     parser.add_argument("--min_lr_scale", type=float, default=0.1)
     parser.add_argument("--t_min_ratio", type=float, default=0.0)
-    parser.add_argument("--t_max_start_ratio", type=float, default=1.0)
+    parser.add_argument("--t_max_start_ratio", type=float, default=0.35)
     parser.add_argument("--t_max_end_ratio", type=float, default=1.0)
-    parser.add_argument("--t_curriculum_power", type=float, default=1.0)
+    parser.add_argument("--t_curriculum_power", type=float, default=2.0)
     parser.add_argument("--amp", action="store_true")
 
     args = parser.parse_args()

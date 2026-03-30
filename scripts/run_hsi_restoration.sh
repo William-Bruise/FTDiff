@@ -23,9 +23,9 @@ for TASK_CFG in "${TASK_CONFIGS[@]}"; do
     --task_config "$TASK_CFG" \
     --adapter_ckpt "$ADAPTER_CKPT" \
     --hsi_channels "$HSI_CHANNELS" \
-    --core_peft lora \
-    --lora_rank 1 \
-    --lora_alpha 1.0 \
+    --adapter_hidden_channels 256 \
+    --adapter_num_blocks 8 \
+    --core_peft none \
     --gpu "$GPU" \
     --save_dir ./results_hsi
 

@@ -24,9 +24,9 @@ python train_hsi_adapter.py \
   --grid_patch_size 128 \
   --rotation_aug \
   --repeats_per_scene 1 \
-  --core_peft lora \
-  --lora_rank 1 \
-  --lora_alpha 1.0 \
+  --adapter_hidden_channels 256 \
+  --adapter_num_blocks 8 \
+  --core_peft none \
   --epochs 400 \
   --batch_size 32 \
   --num_workers 4 \
@@ -36,5 +36,5 @@ python train_hsi_adapter.py \
   --grad_accum_steps 1 \
   --warmup_ratio 0.05 \
   --min_lr_scale 0.1 \
-  --t_max_start_ratio 1.0 \
+  --t_max_start_ratio 0.35 \
   --t_max_end_ratio 1.0
