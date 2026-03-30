@@ -158,12 +158,11 @@ url={https://openreview.net/forum?id=OnD9zGAGT0k}
 
 
 
-## Hyperspectral fine-tuning (parameter-efficient + frozen diffusion core)
+## Hyperspectral fine-tuning (CNN head/tail + frozen diffusion core)
 
-This repo now includes an HSI fine-tuning path that keeps the pretrained diffusion U-Net frozen and only trains parameter-efficient modules:
-- replaced CNN head at diffusion input: HSI -> core stem channels
-- replaced CNN tail at diffusion output: core output channels -> HSI
-- frozen middle diffusion layers (optional LoRA if you explicitly enable it)
+This repo now includes an HSI fine-tuning path that keeps the pretrained diffusion U-Net frozen and only trains:
+- CNN head: HSI -> RGB
+- CNN tail: RGB -> HSI
 
 ### 1) Download hyperspectral dataset (default: CAVE)
 
@@ -185,7 +184,7 @@ python scripts/download_hsi_dataset.py --dataset icvl --output ./data/hsi/icvl -
 
 `run_hsi_finetune.sh` will skip dataset download automatically if `.mat/.npy` files already exist in `DATA_ROOT`.
 
-Note: by default `train_hsi_adapter.py` keeps the model config checkpoint behavior; pass `--disable_checkpoint` only if you explicitly want to turn it off.
+Note: during adapter fine-tuning, `train_hsi_adapter.py` will force `use_checkpoint=False` from model config to avoid autograd errors when the diffusion core is frozen.
 
 ```bash
 bash scripts/run_hsi_finetune.sh
@@ -212,30 +211,13 @@ Main added scripts:
 - `scripts/run_hsi_restoration.sh`
 
 
-Adapter defaults use replaced CNN input/output layers and freeze the diffusion middle.
+Adapter defaults are set to a deeper residual head/tail for stronger HSI adaptation:
+- `--adapter_hidden_channels 128`
+- `--adapter_num_blocks 4`
 
 
-Recommended stable HSI fine-tuning defaults (for better convergence):
-- `batch_size=32` + `grad_accum_steps=1`
-- `epochs=400`, `lr=2e-4`, `weight_decay=5e-5`
+Recommended stable HSI fine-tuning defaults (for lower loss with limited VRAM):
+- `batch_size=1` + `grad_accum_steps=4` (effective batch size 4)
+- `epochs=200`, `lr=1e-4`, `weight_decay=5e-5`
 - cosine LR schedule with `warmup_ratio=0.05`, `min_lr_scale=0.1`
-- timestep curriculum: `t_max_start_ratio=0.35`, `t_max_end_ratio=1.0`, `t_curriculum_power=2.0`
-- `use_grid_patches + grid_patch_size=128` with `rotation_aug`
-
-
-HSI augmentation defaults for stronger fine-tuning:
-- 90°/180°/270° rotation augmentation (`--rotation_aug`)
-- Grid patch augmentation (`--use_grid_patches --grid_patch_size 128`)
-  - for 512x512 scenes this yields 16 non-overlap patches (128x128 each)
-- Train directly on 128x128 patches (`--image_size 128`, `--batch_size 32`)
-
-
-Core PEFT option:
-- default is to train replaced CNN head/tail only:
-  - `--core_peft none`
-- optional LoRA on frozen diffusion core conv layers:
-  - `--core_peft lora --lora_rank 1 --lora_alpha 1.0`
-- memory-safe default only injects LoRA into 1x1 Conv2d layers:
-  - `--lora_conv2d_target 1x1`
-- if you want stronger adaptation and have enough GPU memory, you can increase coverage:
-  - `--lora_conv2d_target all --lora_enable_conv1d`
+- `repeats_per_scene=32`

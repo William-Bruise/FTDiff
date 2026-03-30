@@ -17,7 +17,7 @@ def _normalize_cube(cube: np.ndarray) -> np.ndarray:
     return cube * 2.0 - 1.0
 
 
-def _to_tensor_hsi(cube: np.ndarray, target_size: Optional[Tuple[int, int]]) -> torch.Tensor:
+def _to_tensor_hsi(cube: np.ndarray, target_size: Tuple[int, int]) -> torch.Tensor:
     tensor = torch.from_numpy(cube).permute(2, 0, 1).contiguous()  # C,H,W
     if target_size is not None:
         tensor = F.interpolate(
@@ -52,6 +52,7 @@ def _try_stack_png_bands(scene_dir: Path) -> Optional[np.ndarray]:
 def _ensure_hwc(cube: np.ndarray) -> np.ndarray:
     if cube.ndim != 3:
         raise ValueError(f"Expected 3D cube, got shape={cube.shape}")
+    # likely C,H,W -> H,W,C
     if cube.shape[0] <= 64 and cube.shape[1] > 64 and cube.shape[2] > 64:
         cube = np.transpose(cube, (1, 2, 0))
     return cube
@@ -76,18 +77,12 @@ class HyperspectralFolderDataset(Dataset):
         channels: Optional[int] = None,
         random_crop_size: int = 256,
         repeats_per_scene: int = 1,
-        use_grid_patches: bool = False,
-        grid_patch_size: int = 128,
-        rotation_aug: bool = False,
     ):
         self.root = Path(root)
-        self.target_size = (image_size, image_size) if image_size > 0 else None
+        self.target_size = (image_size, image_size)
         self.channels = channels
         self.random_crop_size = random_crop_size
         self.repeats_per_scene = max(1, int(repeats_per_scene))
-        self.use_grid_patches = use_grid_patches
-        self.grid_patch_size = int(grid_patch_size)
-        self.rotation_aug = rotation_aug
 
         npy_files = sorted(self.root.glob("**/*.npy"))
         mat_files = sorted(self.root.glob("**/*.mat"))
@@ -106,33 +101,7 @@ class HyperspectralFolderDataset(Dataset):
             )
 
         self.scene_refs = scene_refs
-        self.sample_map = self._build_sample_map()
-
-    def _build_sample_map(self):
-        sample_map = []
-        rot_list = [0, 1, 2, 3] if self.rotation_aug else [0]
-
-        if not self.use_grid_patches:
-            for scene_idx in range(len(self.scene_refs)):
-                for _ in range(self.repeats_per_scene):
-                    for rot_k in rot_list:
-                        sample_map.append((scene_idx, None, None, rot_k))
-            return sample_map
-
-        for scene_idx in range(len(self.scene_refs)):
-            cube = self._load_scene_cube(scene_idx)
-            h, w, _ = cube.shape
-            ps = self.grid_patch_size
-            nh = max(1, h // ps)
-            nw = max(1, w // ps)
-            for iy in range(nh):
-                for ix in range(nw):
-                    top = min(iy * ps, max(0, h - ps))
-                    left = min(ix * ps, max(0, w - ps))
-                    for _ in range(self.repeats_per_scene):
-                        for rot_k in rot_list:
-                            sample_map.append((scene_idx, top, left, rot_k))
-        return sample_map
+        self.sample_map = [i for i in range(len(self.scene_refs)) for _ in range(self.repeats_per_scene)]
 
     def __len__(self) -> int:
         return len(self.sample_map)
@@ -162,17 +131,8 @@ class HyperspectralFolderDataset(Dataset):
         return cube
 
     def __getitem__(self, idx: int) -> torch.Tensor:
-        scene_idx, top, left, rot_k = self.sample_map[idx]
+        scene_idx = self.sample_map[idx]
         cube = self._load_scene_cube(scene_idx)
-
-        if top is not None and left is not None:
-            ps = self.grid_patch_size
-            cube = cube[top : top + ps, left : left + ps, :]
-        else:
-            cube = _random_crop(cube, self.random_crop_size)
-
-        if rot_k > 0:
-            cube = np.rot90(cube, k=rot_k, axes=(0, 1)).copy()
-
+        cube = _random_crop(cube, self.random_crop_size)
         cube = _normalize_cube(cube)
         return _to_tensor_hsi(cube, target_size=self.target_size)

@@ -43,16 +43,6 @@ def build_scheduler(optimizer, warmup_steps: int, total_steps: int, min_lr_scale
     return LambdaLR(optimizer, lr_lambda=lr_lambda)
 
 
-
-
-def get_timestep_bounds(epoch: int, epochs: int, num_timesteps: int, args):
-    progress = ((epoch - 1) / max(1, epochs - 1)) ** args.t_curriculum_power
-    t_min = int(args.t_min_ratio * (num_timesteps - 1))
-    t_max_ratio = args.t_max_start_ratio + (args.t_max_end_ratio - args.t_max_start_ratio) * progress
-    t_max = int(t_max_ratio * (num_timesteps - 1))
-    t_max = max(t_min + 1, min(num_timesteps, t_max + 1))
-    return t_min, t_max
-
 def train(args):
     device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
     print(f"[Device] {device}")
@@ -60,7 +50,8 @@ def train(args):
     model_cfg = load_yaml(args.model_config)
     diffusion_cfg = load_yaml(args.diffusion_config)
 
-    if args.disable_checkpoint:
+    if model_cfg.get("use_checkpoint", False):
+        print("[WARN] use_checkpoint=True is incompatible with frozen-core adapter training. Forcing use_checkpoint=False.")
         model_cfg["use_checkpoint"] = False
 
     base_model = create_model(**model_cfg).to(device)
@@ -70,11 +61,6 @@ def train(args):
         adapter_hidden_channels=args.adapter_hidden_channels,
         adapter_num_blocks=args.adapter_num_blocks,
         freeze_core=True,
-        core_peft=args.core_peft,
-        lora_rank=args.lora_rank,
-        lora_alpha=args.lora_alpha,
-        lora_conv2d_target=args.lora_conv2d_target,
-        lora_enable_conv1d=args.lora_enable_conv1d,
     ).to(device)
 
     dataset = HyperspectralFolderDataset(
@@ -83,9 +69,6 @@ def train(args):
         channels=args.hsi_channels,
         random_crop_size=args.random_crop_size,
         repeats_per_scene=args.repeats_per_scene,
-        use_grid_patches=args.use_grid_patches,
-        grid_patch_size=args.grid_patch_size,
-        rotation_aug=args.rotation_aug,
     )
 
     if len(dataset) < 2:
@@ -141,12 +124,11 @@ def train(args):
         train_losses = []
         optim.zero_grad(set_to_none=True)
 
-        t_min, t_max = get_timestep_bounds(epoch, args.epochs, sampler.num_timesteps, args)
-        pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{args.epochs} [t:{t_min}-{t_max-1}]")
+        pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{args.epochs}")
         for iter_idx, x0 in enumerate(pbar):
             x0 = x0.to(device, non_blocking=True)
             b = x0.shape[0]
-            t = torch.randint(t_min, t_max, (b,), device=device)
+            t = torch.randint(0, sampler.num_timesteps, (b,), device=device)
             noise = torch.randn_like(x0)
             x_t = extract(sampler.sqrt_alphas_cumprod, t, x0.shape, device) * x0 + \
                 extract(sampler.sqrt_one_minus_alphas_cumprod, t, x0.shape, device) * noise
@@ -237,37 +219,24 @@ if __name__ == "__main__":
     parser.add_argument("--save_dir", type=str, default="./models/hsi_adapter")
     parser.add_argument("--gpu", type=int, default=0)
 
-    parser.add_argument("--image_size", type=int, default=128)
+    parser.add_argument("--image_size", type=int, default=256)
     parser.add_argument("--hsi_channels", type=int, default=31)
-    parser.add_argument("--adapter_hidden_channels", type=int, default=256)
-    parser.add_argument("--adapter_num_blocks", type=int, default=8)
-    parser.add_argument("--core_peft", type=str, default="none", choices=["none", "lora"])
-    parser.add_argument("--lora_rank", type=int, default=1)
-    parser.add_argument("--lora_alpha", type=float, default=1.0)
-    parser.add_argument("--lora_conv2d_target", type=str, default="1x1", choices=["1x1", "all"])
-    parser.add_argument("--lora_enable_conv1d", action="store_true")
-    parser.add_argument("--disable_checkpoint", action="store_true")
+    parser.add_argument("--adapter_hidden_channels", type=int, default=128)
+    parser.add_argument("--adapter_num_blocks", type=int, default=4)
 
-    parser.add_argument("--epochs", type=int, default=400)
-    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--epochs", type=int, default=80)
+    parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--val_ratio", type=float, default=0.1)
-    parser.add_argument("--random_crop_size", type=int, default=128)
-    parser.add_argument("--use_grid_patches", action="store_true")
-    parser.add_argument("--grid_patch_size", type=int, default=128)
-    parser.add_argument("--rotation_aug", action="store_true")
+    parser.add_argument("--random_crop_size", type=int, default=256)
     parser.add_argument("--repeats_per_scene", type=int, default=32)
 
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight_decay", type=float, default=5e-5)
     parser.add_argument("--grad_clip", type=float, default=1.0)
-    parser.add_argument("--grad_accum_steps", type=int, default=1)
+    parser.add_argument("--grad_accum_steps", type=int, default=4)
     parser.add_argument("--warmup_ratio", type=float, default=0.05)
     parser.add_argument("--min_lr_scale", type=float, default=0.1)
-    parser.add_argument("--t_min_ratio", type=float, default=0.0)
-    parser.add_argument("--t_max_start_ratio", type=float, default=0.35)
-    parser.add_argument("--t_max_end_ratio", type=float, default=1.0)
-    parser.add_argument("--t_curriculum_power", type=float, default=2.0)
     parser.add_argument("--amp", action="store_true")
 
     args = parser.parse_args()
