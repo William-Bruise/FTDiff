@@ -2,7 +2,7 @@
 set -euo pipefail
 
 GPU=${GPU:-0}
-MODEL_CONFIG=${MODEL_CONFIG:-configs/model_config.yaml}
+MODEL_CONFIG=${MODEL_CONFIG:-configs/imagenet_model_config.yaml}
 DIFFUSION_CONFIG=${DIFFUSION_CONFIG:-configs/diffusion_config.yaml}
 DATASET_NAME=${DATASET_NAME:-cave}
 DATA_ROOT=${DATA_ROOT:-./data/hsi/cave}
@@ -38,5 +38,5 @@ python train_hsi_adapter.py \
   --min_lr_scale 0.1 \
   --log_file train_log.csv \
   --log_interval 20 \
-  --t_max_start_ratio 0.35 \
+  --t_max_start_ratio 1.0 \
   --t_max_end_ratio 1.0

@@ -263,7 +263,7 @@ def train(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_config", type=str, default="configs/model_config.yaml")
+    parser.add_argument("--model_config", type=str, default="configs/imagenet_model_config.yaml")
     parser.add_argument("--diffusion_config", type=str, default="configs/diffusion_config.yaml")
     parser.add_argument("--data_root", type=str, default="./data/hsi/cave")
     parser.add_argument("--save_dir", type=str, default="./models/hsi_adapter")
@@ -297,9 +297,9 @@ if __name__ == "__main__":
     parser.add_argument("--warmup_ratio", type=float, default=0.05)
     parser.add_argument("--min_lr_scale", type=float, default=0.1)
     parser.add_argument("--t_min_ratio", type=float, default=0.0)
-    parser.add_argument("--t_max_start_ratio", type=float, default=0.35)
+    parser.add_argument("--t_max_start_ratio", type=float, default=1.0)
     parser.add_argument("--t_max_end_ratio", type=float, default=1.0)
-    parser.add_argument("--t_curriculum_power", type=float, default=2.0)
+    parser.add_argument("--t_curriculum_power", type=float, default=1.0)
     parser.add_argument("--amp", action="store_true")
     parser.add_argument("--log_file", type=str, default="train_log.csv")
     parser.add_argument("--log_interval", type=int, default=20)

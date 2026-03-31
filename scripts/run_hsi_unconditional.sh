@@ -2,7 +2,7 @@
 set -euo pipefail
 
 GPU=${GPU:-0}
-MODEL_CONFIG=${MODEL_CONFIG:-configs/model_config.yaml}
+MODEL_CONFIG=${MODEL_CONFIG:-configs/imagenet_model_config.yaml}
 DIFFUSION_CONFIG=${DIFFUSION_CONFIG:-configs/diffusion_config.yaml}
 ADAPTER_CKPT=${ADAPTER_CKPT:-./models/hsi_adapter/hsi_adapter_best.pt}
 NUM_SAMPLES=${NUM_SAMPLES:-8}

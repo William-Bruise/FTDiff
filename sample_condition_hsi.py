@@ -146,7 +146,7 @@ def ensure_icvl_dataset(root: str, local_zip: str = None, fallback_dataset: Opti
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model_config', type=str, default='configs/model_config.yaml')
+    parser.add_argument('--model_config', type=str, default='configs/imagenet_model_config.yaml')
     parser.add_argument('--diffusion_config', type=str, default='configs/diffusion_config.yaml')
     parser.add_argument('--task_config', type=str)
     parser.add_argument('--adapter_ckpt', type=str, required=True)

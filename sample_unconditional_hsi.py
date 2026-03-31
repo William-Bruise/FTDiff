@@ -40,7 +40,7 @@ def _uncond_identity_condition(x_t, measurement, noisy_measurement, x_prev, x_0_
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_config", type=str, default="configs/model_config.yaml")
+    parser.add_argument("--model_config", type=str, default="configs/imagenet_model_config.yaml")
     parser.add_argument("--diffusion_config", type=str, default="configs/diffusion_config.yaml")
     parser.add_argument("--adapter_ckpt", type=str, required=True)
     parser.add_argument("--hsi_channels", type=int, default=31)

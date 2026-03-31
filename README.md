@@ -237,8 +237,10 @@ Recommended stable HSI fine-tuning defaults (for better convergence):
 - `batch_size=32` + `grad_accum_steps=1`
 - `epochs=400`, `lr=2e-4`, `weight_decay=5e-5`
 - cosine LR schedule with `warmup_ratio=0.05`, `min_lr_scale=0.1`
-- timestep curriculum: `t_max_start_ratio=0.35`, `t_max_end_ratio=1.0`, `t_curriculum_power=2.0`
+- full diffusion timestep training from the start: `t_max_start_ratio=1.0`, `t_max_end_ratio=1.0`
 - `use_grid_patches + grid_patch_size=128` with `rotation_aug`
+
+HSI scripts now default to ImageNet-pretrained backbone config (`configs/imagenet_model_config.yaml`).
 
 
 HSI augmentation defaults for stronger fine-tuning:
