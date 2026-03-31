@@ -2,16 +2,50 @@ import argparse
 from pathlib import Path
 
 import numpy as np
-import torch
-import torch.nn.functional as F
+from scipy.ndimage import zoom
+import scipy.io as sio
+try:
+    import h5py
+except Exception:
+    h5py = None
 
-from data.hsi_dataset import _ensure_hwc, _load_mat_cube
+def _ensure_hwc(cube: np.ndarray) -> np.ndarray:
+    if cube.ndim != 3:
+        raise ValueError(f"Expected 3D cube, got shape={cube.shape}")
+    if cube.shape[0] <= 64 and cube.shape[1] > 64 and cube.shape[2] > 64:
+        cube = np.transpose(cube, (1, 2, 0))
+    return cube
+
+
+def _load_mat_cube(path: Path):
+    try:
+        mat = sio.loadmat(path)
+        for _, value in mat.items():
+            if isinstance(value, np.ndarray) and value.ndim == 3:
+                return value
+    except NotImplementedError:
+        if h5py is None:
+            raise RuntimeError(f"{path} requires h5py for MATLAB v7.3 files.")
+        with h5py.File(path, "r") as f:
+            for key in f.keys():
+                arr = np.array(f[key])
+                if arr.ndim == 3:
+                    if arr.shape[0] <= 64 and arr.shape[1] > 64 and arr.shape[2] > 64:
+                        arr = np.transpose(arr, (1, 2, 0))
+                    elif arr.shape[0] > 64 and arr.shape[1] > 64 and arr.shape[2] <= 64:
+                        pass
+                    else:
+                        arr = np.transpose(arr, (2, 1, 0))
+                    return arr
+    return None
 
 
 def resize_cube(cube_hwc: np.ndarray, size: int) -> np.ndarray:
-    t = torch.from_numpy(cube_hwc.astype(np.float32)).permute(2, 0, 1).unsqueeze(0)  # 1,C,H,W
-    t = F.interpolate(t, size=(size, size), mode="bilinear", align_corners=False)
-    return t.squeeze(0).permute(1, 2, 0).numpy()
+    h, w, _ = cube_hwc.shape
+    zh = float(size) / float(max(1, h))
+    zw = float(size) / float(max(1, w))
+    # zoom over H/W only, keep spectral channels unchanged.
+    return zoom(cube_hwc.astype(np.float32), zoom=(zh, zw, 1.0), order=1)
 
 
 def normalize_per_band_01(cube_hwc: np.ndarray) -> np.ndarray:
