@@ -1,10 +1,14 @@
 from functools import partial
 import os
 import argparse
+import csv
+import subprocess
+import sys
 import yaml
 
 import torch
 import matplotlib.pyplot as plt
+import numpy as np
 
 from guided_diffusion.condition_methods import get_conditioning_method
 from guided_diffusion.measurements import get_noise, get_operator
@@ -64,6 +68,61 @@ def to_vis_image(tensor: torch.Tensor) -> torch.Tensor:
     return torch.clamp((vis + 1.0) * 0.5, 0.0, 1.0)
 
 
+def compute_psnr(pred: torch.Tensor, target: torch.Tensor, eps: float = 1e-8) -> float:
+    pred_u = torch.clamp((pred + 1.0) * 0.5, 0.0, 1.0)
+    tgt_u = torch.clamp((target + 1.0) * 0.5, 0.0, 1.0)
+    mse = torch.mean((pred_u - tgt_u) ** 2).item()
+    return 10.0 * np.log10(1.0 / max(mse, eps))
+
+
+def compute_ssim_global(pred: torch.Tensor, target: torch.Tensor, eps: float = 1e-8) -> float:
+    """
+    Global SSIM approximation (channel-wise, no local window), averaged across channels.
+    This avoids extra dependencies while providing a stable structural metric.
+    """
+    pred_u = torch.clamp((pred + 1.0) * 0.5, 0.0, 1.0).squeeze(0)
+    tgt_u = torch.clamp((target + 1.0) * 0.5, 0.0, 1.0).squeeze(0)
+    C1 = 0.01 ** 2
+    C2 = 0.03 ** 2
+    vals = []
+    for c in range(pred_u.shape[0]):
+        x = pred_u[c]
+        y = tgt_u[c]
+        mux = x.mean()
+        muy = y.mean()
+        sigx = ((x - mux) ** 2).mean()
+        sigy = ((y - muy) ** 2).mean()
+        sigxy = ((x - mux) * (y - muy)).mean()
+        num = (2 * mux * muy + C1) * (2 * sigxy + C2)
+        den = (mux ** 2 + muy ** 2 + C1) * (sigx + sigy + C2)
+        vals.append((num / (den + eps)).item())
+    return float(np.mean(vals))
+
+
+def ensure_icvl_dataset(root: str, local_zip: str = None):
+    root_dir = os.path.abspath(root)
+    has_hsi = False
+    if os.path.isdir(root_dir):
+        for base, _, files in os.walk(root_dir):
+            if any(f.endswith(".mat") or f.endswith(".npy") for f in files):
+                has_hsi = True
+                break
+    if has_hsi:
+        return
+
+    cmd = [
+        sys.executable,
+        "scripts/download_hsi_dataset.py",
+        "--dataset", "icvl",
+        "--output", root_dir,
+        "--only_mat",
+    ]
+    if local_zip:
+        cmd.extend(["--local_zip", local_zip])
+    print(f"[AutoDownload] ICVL dataset not found at {root_dir}, downloading...")
+    subprocess.run(cmd, check=True)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_config', type=str, default='configs/model_config.yaml')
@@ -81,6 +140,9 @@ def main():
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--save_dir', type=str, default='./results_hsi')
     parser.add_argument('--use_ckpt_model_args', action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument('--data_root_override', type=str, default=None)
+    parser.add_argument('--auto_download_icvl', action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument('--icvl_local_zip', type=str, default=None)
     args = parser.parse_args()
 
     logger = get_logger()
@@ -110,6 +172,10 @@ def main():
     model_config = load_yaml(args.model_config)
     diffusion_config = load_yaml(args.diffusion_config)
     task_config = load_yaml(args.task_config)
+    if args.data_root_override:
+        task_config["data"]["root"] = args.data_root_override
+    if args.auto_download_icvl:
+        ensure_icvl_dataset(task_config["data"]["root"], local_zip=args.icvl_local_zip)
 
     base_model = create_model(**model_config).to(device)
     model = build_hsi_adapter_model(
@@ -155,6 +221,10 @@ def main():
     os.makedirs(out_path, exist_ok=True)
     for img_dir in ['input', 'recon', 'progress', 'label']:
         os.makedirs(os.path.join(out_path, img_dir), exist_ok=True)
+    metrics_csv = os.path.join(out_path, "metrics.csv")
+    with open(metrics_csv, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["index", "psnr", "ssim_global"])
 
     data_config = task_config['data']
     dataset = HyperspectralFolderDataset(
@@ -163,6 +233,8 @@ def main():
         channels=args.hsi_channels,
     )
 
+    psnr_list = []
+    ssim_list = []
     for i in range(len(dataset)):
         logger.info(f"Inference for image {i}")
         fname = str(i).zfill(5) + '.png'
@@ -180,6 +252,13 @@ def main():
 
         x_start = torch.randn(ref_img.shape, device=device).requires_grad_()
         sample = sample_fn(x_start=x_start, measurement=y_n, record=True, save_root=out_path)
+        psnr_val = compute_psnr(sample, ref_img)
+        ssim_val = compute_ssim_global(sample, ref_img)
+        psnr_list.append(psnr_val)
+        ssim_list.append(ssim_val)
+        with open(metrics_csv, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([i, psnr_val, ssim_val])
 
         vis_y = to_vis_image(y_n)
         vis_ref = to_vis_image(ref_img)
@@ -196,6 +275,13 @@ def main():
         plt.imsave(
             os.path.join(out_path, 'recon', fname),
             vis_rec.detach().cpu().squeeze(0).permute(1, 2, 0).numpy(),
+        )
+
+    if len(psnr_list) > 0:
+        logger.info(
+            f"[Metrics] mean PSNR={float(np.mean(psnr_list)):.4f} dB, "
+            f"mean SSIM(global)={float(np.mean(ssim_list)):.4f}. "
+            f"Per-image metrics saved to {metrics_csv}"
         )
 
 

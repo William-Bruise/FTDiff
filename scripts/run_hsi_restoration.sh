@@ -6,6 +6,8 @@ MODEL_CONFIG=${MODEL_CONFIG:-configs/model_config.yaml}
 DIFFUSION_CONFIG=${DIFFUSION_CONFIG:-configs/diffusion_config.yaml}
 ADAPTER_CKPT=${ADAPTER_CKPT:-./models/hsi_adapter/hsi_adapter_best.pt}
 HSI_CHANNELS=${HSI_CHANNELS:-31}
+DATA_ROOT=${DATA_ROOT:-./data/hsi/icvl}
+ICVL_LOCAL_ZIP=${ICVL_LOCAL_ZIP:-}
 
 TASK_CONFIGS=(
   "configs/hsi/inpainting_config.yaml"
@@ -17,6 +19,10 @@ TASK_CONFIGS=(
 
 for TASK_CFG in "${TASK_CONFIGS[@]}"; do
   echo "[Run] ${TASK_CFG}"
+  EXTRA_ARGS=()
+  if [[ -n "${ICVL_LOCAL_ZIP}" ]]; then
+    EXTRA_ARGS+=(--icvl_local_zip "${ICVL_LOCAL_ZIP}")
+  fi
   python sample_condition_hsi.py \
     --model_config "$MODEL_CONFIG" \
     --diffusion_config "$DIFFUSION_CONFIG" \
@@ -26,7 +32,10 @@ for TASK_CFG in "${TASK_CONFIGS[@]}"; do
     --adapter_hidden_channels 256 \
     --adapter_num_blocks 4 \
     --core_peft none \
+    --data_root_override "$DATA_ROOT" \
+    --auto_download_icvl \
     --gpu "$GPU" \
-    --save_dir ./results_hsi
+    --save_dir ./results_hsi \
+    "${EXTRA_ARGS[@]}"
 
 done
