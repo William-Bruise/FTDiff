@@ -12,7 +12,6 @@ from guided_diffusion.unet import create_model
 from guided_diffusion.gaussian_diffusion import create_sampler
 from data.hsi_dataset import HyperspectralFolderDataset
 from models_hsi_adapter import build_hsi_adapter_model
-from util.img_utils import clear_color
 from util.logger import get_logger
 
 
@@ -49,6 +48,20 @@ def to_rgb_preview(hsi_tensor: torch.Tensor) -> torch.Tensor:
         hsi_tensor[:, bidx, :, :],
     ], dim=1)
     return rgb
+
+
+def to_vis_image(tensor: torch.Tensor) -> torch.Tensor:
+    """
+    Convert model-space tensor to visualization image in [0,1] without per-image min-max stretching.
+    Assumes training/data range is approximately [-1, 1].
+    """
+    if tensor.shape[1] == 1:
+        vis = tensor.repeat(1, 3, 1, 1)
+    elif tensor.shape[1] == 3:
+        vis = tensor
+    else:
+        vis = to_rgb_preview(tensor)
+    return torch.clamp((vis + 1.0) * 0.5, 0.0, 1.0)
 
 
 def main():
@@ -168,16 +181,22 @@ def main():
         x_start = torch.randn(ref_img.shape, device=device).requires_grad_()
         sample = sample_fn(x_start=x_start, measurement=y_n, record=True, save_root=out_path)
 
-        vis_y = y_n
-        if vis_y.shape[1] != 3:
-            if vis_y.shape[1] == 1:
-                vis_y = vis_y.repeat(1, 3, 1, 1)
-            else:
-                vis_y = to_rgb_preview(vis_y)
+        vis_y = to_vis_image(y_n)
+        vis_ref = to_vis_image(ref_img)
+        vis_rec = to_vis_image(sample)
 
-        plt.imsave(os.path.join(out_path, 'input', fname), clear_color(vis_y))
-        plt.imsave(os.path.join(out_path, 'label', fname), clear_color(to_rgb_preview(ref_img)))
-        plt.imsave(os.path.join(out_path, 'recon', fname), clear_color(to_rgb_preview(sample)))
+        plt.imsave(
+            os.path.join(out_path, 'input', fname),
+            vis_y.detach().cpu().squeeze(0).permute(1, 2, 0).numpy(),
+        )
+        plt.imsave(
+            os.path.join(out_path, 'label', fname),
+            vis_ref.detach().cpu().squeeze(0).permute(1, 2, 0).numpy(),
+        )
+        plt.imsave(
+            os.path.join(out_path, 'recon', fname),
+            vis_rec.detach().cpu().squeeze(0).permute(1, 2, 0).numpy(),
+        )
 
 
 if __name__ == '__main__':
