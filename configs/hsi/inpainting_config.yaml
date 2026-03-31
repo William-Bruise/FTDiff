@@ -1,0 +1,19 @@
+conditioning:
+  method: ps
+  params:
+    scale: 0.7
+
+data:
+  name: hsi
+  root: ./data/hsi/cave
+  image_size: 256
+
+measurement:
+  operator:
+    name: inpainting
+  mask_opt:
+    mask_type: random
+    sampling_rate_range: !!python/tuple [0.3, 0.7]  # observed-pixel ratio
+  noise:
+    name: gaussian
+    sigma: 0.05
