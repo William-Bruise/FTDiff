@@ -200,7 +200,8 @@ Training logs are written to:
 bash scripts/run_hsi_restoration.sh
 ```
 
-By default the restoration runner now targets ICVL (`DATA_ROOT=/home/wuweihao/FTDiff/data/hsi/icvl`) and will auto-download ICVL `.mat` files if missing.  
+By default the restoration runner expects raw ICVL under `ICVL_RAW_ROOT=/home/wuweihao/FTDiff/data/hsi/icvl`, then preprocesses to `DATA_ROOT=./data/samples/icvl` by resizing (`PREP_SIZE=256` or `512`) and per-band normalization.
+It then runs experiments on the processed samples under `data/samples`.
 After sampling, per-image metrics are saved to `results_hsi/<operator>/metrics.csv` with PSNR and SSIM(global).
 If ICVL access fails (e.g., SharePoint 403), the runner falls back to `FALLBACK_DATASET=ehu` by default.
 

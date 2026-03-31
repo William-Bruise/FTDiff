@@ -7,13 +7,21 @@ import torch
 import torch.nn.functional as F
 from PIL import Image
 from torch.utils.data import Dataset
+try:
+    import h5py
+except Exception:
+    h5py = None
 
 
 def _normalize_cube(cube: np.ndarray) -> np.ndarray:
     cube = cube.astype(np.float32)
-    cmin, cmax = cube.min(), cube.max()
-    if cmax > cmin:
-        cube = (cube - cmin) / (cmax - cmin)
+    # per-band normalization to [0,1], then to [-1,1]
+    flat = cube.reshape(-1, cube.shape[-1])
+    cmin = flat.min(axis=0, keepdims=True)
+    cmax = flat.max(axis=0, keepdims=True)
+    denom = np.maximum(cmax - cmin, 1e-6)
+    flat = (flat - cmin) / denom
+    cube = flat.reshape(cube.shape)
     return cube * 2.0 - 1.0
 
 
@@ -30,10 +38,28 @@ def _to_tensor_hsi(cube: np.ndarray, target_size: Optional[Tuple[int, int]]) -> 
 
 
 def _load_mat_cube(path: Path) -> Optional[np.ndarray]:
-    mat = sio.loadmat(path)
-    for _, value in mat.items():
-        if isinstance(value, np.ndarray) and value.ndim == 3:
-            return value
+    try:
+        mat = sio.loadmat(path)
+        for _, value in mat.items():
+            if isinstance(value, np.ndarray) and value.ndim == 3:
+                return value
+    except NotImplementedError:
+        if h5py is None:
+            raise RuntimeError(
+                f"{path} looks like MATLAB v7.3 (HDF5), but h5py is unavailable. Please install h5py."
+            )
+        with h5py.File(path, "r") as f:
+            for key in f.keys():
+                arr = np.array(f[key])
+                if arr.ndim == 3:
+                    # HDF5 mat often stores Fortran-order dims, map to HWC.
+                    if arr.shape[0] <= 64 and arr.shape[1] > 64 and arr.shape[2] > 64:
+                        arr = np.transpose(arr, (1, 2, 0))
+                    elif arr.shape[0] > 64 and arr.shape[1] > 64 and arr.shape[2] <= 64:
+                        pass
+                    else:
+                        arr = np.transpose(arr, (2, 1, 0))
+                    return arr
     return None
 
 
