@@ -6,7 +6,7 @@ MODEL_CONFIG=${MODEL_CONFIG:-configs/model_config.yaml}
 DIFFUSION_CONFIG=${DIFFUSION_CONFIG:-configs/diffusion_config.yaml}
 ADAPTER_CKPT=${ADAPTER_CKPT:-./models/hsi_adapter/hsi_adapter_best.pt}
 HSI_CHANNELS=${HSI_CHANNELS:-31}
-DATA_ROOT=${DATA_ROOT:-./data/hsi/icvl}
+DATA_ROOT=${DATA_ROOT:-/home/wuweihao/FTDiff/data/hsi/icvl}
 ICVL_LOCAL_ZIP=${ICVL_LOCAL_ZIP:-}
 FALLBACK_DATASET=${FALLBACK_DATASET:-ehu}
 

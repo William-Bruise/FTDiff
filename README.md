@@ -200,7 +200,7 @@ Training logs are written to:
 bash scripts/run_hsi_restoration.sh
 ```
 
-By default the restoration runner now targets ICVL (`DATA_ROOT=./data/hsi/icvl`) and will auto-download ICVL `.mat` files if missing.  
+By default the restoration runner now targets ICVL (`DATA_ROOT=/home/wuweihao/FTDiff/data/hsi/icvl`) and will auto-download ICVL `.mat` files if missing.  
 After sampling, per-image metrics are saved to `results_hsi/<operator>/metrics.csv` with PSNR and SSIM(global).
 If ICVL access fails (e.g., SharePoint 403), the runner falls back to `FALLBACK_DATASET=ehu` by default.
 
@@ -210,6 +210,16 @@ Tasks covered in `scripts/run_hsi_restoration.sh`:
 - Super-resolution
 - Snapshot compressive imaging
 - Deblurring
+
+### 4) Unconditional generation from fine-tuned HSI model
+
+```bash
+bash scripts/run_hsi_unconditional.sh
+```
+
+Outputs:
+- `results_hsi_uncond/npy/*.npy` (full HSI cubes)
+- `results_hsi_uncond/preview/*.png` (RGB band previews)
 
 Main added scripts:
 - `train_hsi_adapter.py`
