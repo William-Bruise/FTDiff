@@ -8,6 +8,7 @@ ADAPTER_CKPT=${ADAPTER_CKPT:-./models/hsi_adapter/hsi_adapter_best.pt}
 HSI_CHANNELS=${HSI_CHANNELS:-31}
 DATA_ROOT=${DATA_ROOT:-./data/hsi/icvl}
 ICVL_LOCAL_ZIP=${ICVL_LOCAL_ZIP:-}
+FALLBACK_DATASET=${FALLBACK_DATASET:-ehu}
 
 TASK_CONFIGS=(
   "configs/hsi/inpainting_config.yaml"
@@ -34,6 +35,7 @@ for TASK_CFG in "${TASK_CONFIGS[@]}"; do
     --core_peft none \
     --data_root_override "$DATA_ROOT" \
     --auto_download_icvl \
+    --download_fallback_dataset "$FALLBACK_DATASET" \
     --gpu "$GPU" \
     --save_dir ./results_hsi \
     "${EXTRA_ARGS[@]}"

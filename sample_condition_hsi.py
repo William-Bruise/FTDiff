@@ -4,6 +4,7 @@ import argparse
 import csv
 import subprocess
 import sys
+from typing import Optional
 import yaml
 
 import torch
@@ -99,7 +100,7 @@ def compute_ssim_global(pred: torch.Tensor, target: torch.Tensor, eps: float = 1
     return float(np.mean(vals))
 
 
-def ensure_icvl_dataset(root: str, local_zip: str = None):
+def ensure_icvl_dataset(root: str, local_zip: str = None, fallback_dataset: Optional[str] = "ehu"):
     root_dir = os.path.abspath(root)
     has_hsi = False
     if os.path.isdir(root_dir):
@@ -120,7 +121,27 @@ def ensure_icvl_dataset(root: str, local_zip: str = None):
     if local_zip:
         cmd.extend(["--local_zip", local_zip])
     print(f"[AutoDownload] ICVL dataset not found at {root_dir}, downloading...")
-    subprocess.run(cmd, check=True)
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        if fallback_dataset not in ("ehu", "cave"):
+            raise RuntimeError(
+                "ICVL auto-download failed and fallback dataset is disabled. "
+                "Use --icvl_local_zip <zip_path> or set --download_fallback_dataset ehu/cave."
+            ) from e
+        print(
+            f"[AutoDownload][WARN] ICVL download failed ({e}). "
+            f"Falling back to --dataset {fallback_dataset} at {root_dir}."
+        )
+        fallback_cmd = [
+            sys.executable,
+            "scripts/download_hsi_dataset.py",
+            "--dataset", fallback_dataset,
+            "--output", root_dir,
+        ]
+        if fallback_dataset == "ehu":
+            fallback_cmd.append("--only_mat")
+        subprocess.run(fallback_cmd, check=True)
 
 
 def main():
@@ -143,6 +164,7 @@ def main():
     parser.add_argument('--data_root_override', type=str, default=None)
     parser.add_argument('--auto_download_icvl', action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument('--icvl_local_zip', type=str, default=None)
+    parser.add_argument('--download_fallback_dataset', type=str, default='ehu', choices=['ehu', 'cave', 'none'])
     args = parser.parse_args()
 
     logger = get_logger()
@@ -175,7 +197,8 @@ def main():
     if args.data_root_override:
         task_config["data"]["root"] = args.data_root_override
     if args.auto_download_icvl:
-        ensure_icvl_dataset(task_config["data"]["root"], local_zip=args.icvl_local_zip)
+        fb = None if args.download_fallback_dataset == "none" else args.download_fallback_dataset
+        ensure_icvl_dataset(task_config["data"]["root"], local_zip=args.icvl_local_zip, fallback_dataset=fb)
 
     base_model = create_model(**model_config).to(device)
     model = build_hsi_adapter_model(

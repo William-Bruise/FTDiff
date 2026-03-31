@@ -202,6 +202,7 @@ bash scripts/run_hsi_restoration.sh
 
 By default the restoration runner now targets ICVL (`DATA_ROOT=./data/hsi/icvl`) and will auto-download ICVL `.mat` files if missing.  
 After sampling, per-image metrics are saved to `results_hsi/<operator>/metrics.csv` with PSNR and SSIM(global).
+If ICVL access fails (e.g., SharePoint 403), the runner falls back to `FALLBACK_DATASET=ehu` by default.
 
 Tasks covered in `scripts/run_hsi_restoration.sh`:
 - Inpainting
