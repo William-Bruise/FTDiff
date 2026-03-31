@@ -13,7 +13,7 @@ measurement:
     name: inpainting
   mask_opt:
     mask_type: random
-    mask_prob_range: !!python/tuple [0.3, 0.7]
+    sampling_rate_range: !!python/tuple [0.3, 0.7]  # observed-pixel ratio
   noise:
     name: gaussian
     sigma: 0.05

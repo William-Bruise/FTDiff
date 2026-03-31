@@ -212,6 +212,8 @@ Tasks covered in `scripts/run_hsi_restoration.sh`:
 - Snapshot compressive imaging
 - Deblurring
 
+For HSI inpainting config, `sampling_rate_range` denotes observed-pixel ratio (e.g. `[0.3,0.7]` means 30%~70% pixels are kept).
+
 ### 4) Unconditional generation from fine-tuned HSI model
 
 ```bash

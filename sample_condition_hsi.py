@@ -29,12 +29,16 @@ def load_yaml(file_path: str) -> dict:
 
 
 def build_hsi_inpainting_mask(ref_img: torch.Tensor, mask_opt: dict) -> torch.Tensor:
-    """Generate 1-channel spatial mask and broadcast along HSI channels."""
+    """Generate 1-channel spatial mask and broadcast along HSI channels.
+
+    sampling_rate means observed-pixel ratio (mask==1).
+    """
     mask_type = mask_opt.get("mask_type", "random")
     if mask_type != "random":
         raise NotImplementedError("Only random mask_type is supported for HSI in this script.")
 
-    pmin, pmax = mask_opt.get("mask_prob_range", (0.3, 0.7))
+    # New name: sampling_rate_range. Keep backward compatibility with mask_prob_range.
+    pmin, pmax = mask_opt.get("sampling_rate_range", mask_opt.get("mask_prob_range", (0.3, 0.7)))
     prob = float(torch.empty(1).uniform_(float(pmin), float(pmax)).item())
 
     b, c, h, w = ref_img.shape
