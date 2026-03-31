@@ -59,7 +59,7 @@ def main():
     parser.add_argument('--adapter_ckpt', type=str, required=True)
     parser.add_argument('--hsi_channels', type=int, default=31)
     parser.add_argument('--adapter_hidden_channels', type=int, default=256)
-    parser.add_argument('--adapter_num_blocks', type=int, default=8)
+    parser.add_argument('--adapter_num_blocks', type=int, default=4)
     parser.add_argument('--core_peft', type=str, default='none', choices=['none', 'lora'])
     parser.add_argument('--lora_rank', type=int, default=1)
     parser.add_argument('--lora_alpha', type=float, default=1.0)
@@ -67,6 +67,7 @@ def main():
     parser.add_argument('--lora_enable_conv1d', action='store_true')
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--save_dir', type=str, default='./results_hsi')
+    parser.add_argument('--use_ckpt_model_args', action=argparse.BooleanOptionalAction, default=True)
     args = parser.parse_args()
 
     logger = get_logger()
@@ -74,6 +75,24 @@ def main():
     device_str = f"cuda:{args.gpu}" if torch.cuda.is_available() else 'cpu'
     logger.info(f"Device set to {device_str}.")
     device = torch.device(device_str)
+
+    ckpt = torch.load(args.adapter_ckpt, map_location='cpu')
+    ckpt_args = ckpt.get("args", {}) if isinstance(ckpt, dict) else {}
+    if args.use_ckpt_model_args and isinstance(ckpt_args, dict) and len(ckpt_args) > 0:
+        # Keep architecture aligned with training-time checkpoint args.
+        args.hsi_channels = int(ckpt_args.get("hsi_channels", args.hsi_channels))
+        args.adapter_hidden_channels = int(ckpt_args.get("adapter_hidden_channels", args.adapter_hidden_channels))
+        args.adapter_num_blocks = int(ckpt_args.get("adapter_num_blocks", args.adapter_num_blocks))
+        args.core_peft = ckpt_args.get("core_peft", args.core_peft)
+        args.lora_rank = int(ckpt_args.get("lora_rank", args.lora_rank))
+        args.lora_alpha = float(ckpt_args.get("lora_alpha", args.lora_alpha))
+        args.lora_conv2d_target = ckpt_args.get("lora_conv2d_target", args.lora_conv2d_target)
+        args.lora_enable_conv1d = bool(ckpt_args.get("lora_enable_conv1d", args.lora_enable_conv1d))
+        logger.info(
+            "Loaded model architecture args from checkpoint: "
+            f"hsi_channels={args.hsi_channels}, hidden={args.adapter_hidden_channels}, "
+            f"blocks={args.adapter_num_blocks}, core_peft={args.core_peft}."
+        )
 
     model_config = load_yaml(args.model_config)
     diffusion_config = load_yaml(args.diffusion_config)
@@ -93,9 +112,17 @@ def main():
         lora_enable_conv1d=args.lora_enable_conv1d,
     ).to(device)
 
-    ckpt = torch.load(args.adapter_ckpt, map_location='cpu')
     state = ckpt['adapter_state_dict'] if 'adapter_state_dict' in ckpt else ckpt
-    model.load_state_dict(state, strict=True)
+    try:
+        model.load_state_dict(state, strict=True)
+    except RuntimeError as e:
+        raise RuntimeError(
+            "Failed to load adapter checkpoint strictly. "
+            "This is usually caused by architecture mismatch between training and sampling "
+            "(e.g., adapter_num_blocks/hidden/core_peft differs). "
+            "Try enabling --use_ckpt_model_args (default on) or matching sampling args to checkpoint args.\n"
+            f"Original error: {e}"
+        )
     model.eval()
 
     measure_config = task_config['measurement']
