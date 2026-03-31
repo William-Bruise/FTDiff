@@ -25,7 +25,7 @@ python train_hsi_adapter.py \
   --rotation_aug \
   --repeats_per_scene 1 \
   --adapter_hidden_channels 256 \
-  --adapter_num_blocks 8 \
+  --adapter_num_blocks 4 \
   --core_peft none \
   --epochs 400 \
   --batch_size 32 \
