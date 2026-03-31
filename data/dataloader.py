@@ -4,6 +4,8 @@ from typing import Callable, Optional
 from torch.utils.data import DataLoader
 from torchvision.datasets import VisionDataset
 
+from data.hsi_dataset import HyperspectralFolderDataset
+
 
 __DATASET__ = {}
 
@@ -53,3 +55,7 @@ class FFHQDataset(VisionDataset):
             img = self.transforms(img)
         
         return img
+
+@register_dataset(name='hsi')
+class HSIDataset(HyperspectralFolderDataset):
+    pass
