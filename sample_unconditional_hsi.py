@@ -79,6 +79,7 @@ def main():
     parser.add_argument("--lora_enable_conv1d", action="store_true")
     parser.add_argument("--num_samples", type=int, default=8)
     parser.add_argument("--image_size", type=int, default=256)
+    parser.add_argument("--use_ckpt_sampling_args", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--save_dir", type=str, default="./results_hsi_uncond")
     args = parser.parse_args()
@@ -99,6 +100,9 @@ def main():
         args.lora_alpha = float(ckpt_args.get("lora_alpha", args.lora_alpha))
         args.lora_conv2d_target = ckpt_args.get("lora_conv2d_target", args.lora_conv2d_target)
         args.lora_enable_conv1d = bool(ckpt_args.get("lora_enable_conv1d", args.lora_enable_conv1d))
+        if args.use_ckpt_sampling_args and "image_size" in ckpt_args:
+            args.image_size = int(ckpt_args["image_size"])
+            logger.info(f"Using image_size={args.image_size} from adapter checkpoint args.")
 
     model_cfg = load_yaml(args.model_config)
     diffusion_cfg = load_yaml(args.diffusion_config)

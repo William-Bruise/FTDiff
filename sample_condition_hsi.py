@@ -191,6 +191,7 @@ def main():
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--save_dir', type=str, default='./results_hsi')
     parser.add_argument('--use_ckpt_model_args', action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument('--use_ckpt_sampling_args', action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument('--data_root_override', type=str, default=None)
     parser.add_argument('--auto_download_icvl', action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument('--icvl_local_zip', type=str, default=None)
@@ -224,6 +225,17 @@ def main():
     model_config = load_yaml(args.model_config)
     diffusion_config = load_yaml(args.diffusion_config)
     task_config = load_yaml(args.task_config)
+    if args.use_ckpt_sampling_args and isinstance(ckpt_args, dict) and "image_size" in ckpt_args:
+        ckpt_img_size = int(ckpt_args["image_size"])
+        old_size = int(task_config.get("data", {}).get("image_size", ckpt_img_size))
+        task_config.setdefault("data", {})["image_size"] = ckpt_img_size
+        if old_size != ckpt_img_size:
+            logger.warning(
+                f"Overriding task data.image_size from {old_size} to checkpoint image_size={ckpt_img_size} "
+                "for train/inference resolution consistency."
+            )
+        else:
+            logger.info(f"Using task data.image_size={ckpt_img_size} from checkpoint args.")
     if args.data_root_override:
         task_config["data"]["root"] = args.data_root_override
     if args.auto_download_icvl:
