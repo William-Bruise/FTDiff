@@ -29,7 +29,7 @@ python train_hsi_adapter.py \
   --core_peft none \
   --epochs 400 \
   --batch_size 32 \
-  --num_workers 4 \
+  --num_workers 0 \
   --lr 2e-4 \
   --weight_decay 5e-5 \
   --grad_clip 1.0 \

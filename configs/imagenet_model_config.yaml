@@ -17,4 +17,5 @@ resblock_updown: True
 use_fp16: False
 use_new_attention_order: False
 
-model_path: /home/wuweihao/FTDiff/models/imagenet256.pt
+model_path: models/imagenet256.pt
+allow_random_init: false

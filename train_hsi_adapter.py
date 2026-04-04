@@ -2,6 +2,7 @@ import argparse
 import csv
 import math
 import os
+import sys
 from pathlib import Path
 
 import torch
@@ -57,6 +58,17 @@ def get_timestep_bounds(epoch: int, epochs: int, num_timesteps: int, args):
 def train(args):
     device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
     print(f"[Device] {device}")
+    effective_num_workers = max(0, int(args.num_workers))
+    effective_pin_memory = bool(args.pin_memory and device.type == "cuda")
+    if device.type != "cuda" and args.pin_memory:
+        print("[WARN] pin_memory=True is only useful with CUDA. Setting pin_memory=False.")
+    if effective_num_workers > 0 and sys.version_info >= (3, 12):
+        print(
+            f"[WARN] Python {sys.version.split()[0]} with DataLoader workers can be unstable in some envs. "
+            "Falling back to num_workers=0. You can force workers via --allow_worker_fallback."
+        )
+        if not args.allow_worker_fallback:
+            effective_num_workers = 0
 
     model_cfg = load_yaml(args.model_config)
     diffusion_cfg = load_yaml(args.diffusion_config)
@@ -100,16 +112,16 @@ def train(args):
         train_set,
         batch_size=args.batch_size,
         shuffle=True,
-        num_workers=args.num_workers,
-        pin_memory=True,
+        num_workers=effective_num_workers,
+        pin_memory=effective_pin_memory,
         drop_last=True,
     )
     val_loader = DataLoader(
         val_set,
         batch_size=args.batch_size,
         shuffle=False,
-        num_workers=args.num_workers,
-        pin_memory=True,
+        num_workers=effective_num_workers,
+        pin_memory=effective_pin_memory,
     )
 
     sampler = create_sampler(**diffusion_cfg)
@@ -283,6 +295,13 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=400)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--num_workers", type=int, default=4)
+    parser.add_argument("--pin_memory", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument(
+        "--allow_worker_fallback",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="When false, auto-fallback num_workers to 0 on Python>=3.12 for stability.",
+    )
     parser.add_argument("--val_ratio", type=float, default=0.1)
     parser.add_argument("--random_crop_size", type=int, default=128)
     parser.add_argument("--use_grid_patches", action="store_true")
