@@ -129,8 +129,15 @@ def train(args):
     optim = AdamW(adapter_model.trainable_parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
     amp_enabled = bool(args.amp and device.type == "cuda")
+    amp_disabled_reason = None
+    if args.amp and device.type != "cuda":
+        amp_disabled_reason = "CUDA is unavailable"
+        amp_enabled = False
+    if args.amp and model_cfg.get("use_checkpoint", False) and amp_enabled:
+        amp_disabled_reason = "AMP + gradient checkpointing can cause dtype mismatch in this UNet"
+        amp_enabled = False
     if args.amp and not amp_enabled:
-        print("[WARN] AMP requested but CUDA is unavailable. AMP disabled.")
+        print(f"[WARN] AMP requested but {amp_disabled_reason}. AMP disabled.")
     scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
 
     updates_per_epoch = math.ceil(len(train_loader) / args.grad_accum_steps)
