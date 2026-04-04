@@ -2,16 +2,22 @@ import torch
 import torch.nn as nn
 
 
+def _build_norm(norm_type: str, channels: int) -> nn.Module:
+    if norm_type == "batch":
+        return nn.BatchNorm2d(channels)
+    groups = 8 if channels % 8 == 0 else 1
+    return nn.GroupNorm(groups, channels)
+
+
 class ResidualConvBlock(nn.Module):
-    def __init__(self, channels: int):
+    def __init__(self, channels: int, norm_type: str = "group"):
         super().__init__()
-        groups = 8 if channels % 8 == 0 else 1
         self.block = nn.Sequential(
             nn.Conv2d(channels, channels, kernel_size=3, padding=1),
-            nn.GroupNorm(groups, channels),
+            _build_norm(norm_type, channels),
             nn.GELU(),
             nn.Conv2d(channels, channels, kernel_size=3, padding=1),
-            nn.GroupNorm(groups, channels),
+            _build_norm(norm_type, channels),
         )
         self.act = nn.GELU()
 
@@ -26,22 +32,27 @@ class ConvHead(nn.Module):
         hidden_channels: int = 256,
         out_channels: int = 3,
         num_blocks: int = 8,
+        norm_type: str = "group",
     ):
         super().__init__()
-        groups = 8 if hidden_channels % 8 == 0 else 1
         self.stem = nn.Sequential(
             nn.Conv2d(in_channels, hidden_channels, kernel_size=3, padding=1),
-            nn.GroupNorm(groups, hidden_channels),
+            _build_norm(norm_type, hidden_channels),
             nn.GELU(),
         )
-        self.blocks = nn.Sequential(*[ResidualConvBlock(hidden_channels) for _ in range(num_blocks)])
+        self.blocks = nn.Sequential(*[ResidualConvBlock(hidden_channels, norm_type=norm_type) for _ in range(num_blocks)])
+
+        self.down = nn.Sequential(
+            nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, stride=2, padding=1),
+            _build_norm(norm_type, hidden_channels),
+            nn.GELU(),
+        )
         self.proj = nn.Conv2d(hidden_channels, out_channels, kernel_size=3, padding=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.stem(x)
-        x = self.blocks(x)
-        x = self.proj(x)
-        return x
+        x = self.blocks(self.stem(x))
+        x = self.down(x)
+        return self.proj(x)
 
 
 class ConvTail(nn.Module):
@@ -51,22 +62,28 @@ class ConvTail(nn.Module):
         hidden_channels: int = 256,
         out_channels: int = 31,
         num_blocks: int = 8,
+        norm_type: str = "group",
     ):
         super().__init__()
-        groups = 8 if hidden_channels % 8 == 0 else 1
         self.stem = nn.Sequential(
             nn.Conv2d(in_channels, hidden_channels, kernel_size=3, padding=1),
-            nn.GroupNorm(groups, hidden_channels),
+            _build_norm(norm_type, hidden_channels),
             nn.GELU(),
         )
-        self.blocks = nn.Sequential(*[ResidualConvBlock(hidden_channels) for _ in range(num_blocks)])
+        self.blocks = nn.Sequential(*[ResidualConvBlock(hidden_channels, norm_type=norm_type) for _ in range(num_blocks)])
+
+        self.up = nn.Sequential(
+            nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, padding=1),
+            _build_norm(norm_type, hidden_channels),
+            nn.GELU(),
+        )
         self.proj = nn.Conv2d(hidden_channels, out_channels, kernel_size=3, padding=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.stem(x)
-        x = self.blocks(x)
-        x = self.proj(x)
-        return x
+        x = self.blocks(self.stem(x))
+        x = torch.nn.functional.interpolate(x, scale_factor=2, mode="bilinear", align_corners=False)
+        x = self.up(x)
+        return self.proj(x)
 
 
 class LoRAConv2d(nn.Module):
@@ -164,6 +181,7 @@ class FrozenDiffusionWithAdapters(nn.Module):
         self.core_peft = core_peft
         self.lora_conv2d_target = lora_conv2d_target
         self.lora_enable_conv1d = lora_enable_conv1d
+        self.norm_type = self._infer_norm_type_from_core()
 
         self.head, self.tail = self._replace_core_io_with_cnn_adapters(
             hsi_channels=hsi_channels,
@@ -172,7 +190,8 @@ class FrozenDiffusionWithAdapters(nn.Module):
         )
         print(
             f"[HSI-Adapter] replaced UNet input/output with CNN head/tail "
-            f"(hsi_channels={hsi_channels}, hidden={adapter_hidden_channels}, blocks={adapter_num_blocks})."
+            f"(hsi_channels={hsi_channels}, hidden={adapter_hidden_channels}, blocks={adapter_num_blocks}, "
+            f"norm={self.norm_type})."
         )
 
         if core_peft == "lora":
@@ -208,6 +227,7 @@ class FrozenDiffusionWithAdapters(nn.Module):
             hidden_channels=hidden_channels,
             out_channels=stem_channels,
             num_blocks=num_blocks,
+            norm_type=self.norm_type,
         )
         first_block[0] = head
 
@@ -222,9 +242,24 @@ class FrozenDiffusionWithAdapters(nn.Module):
             hidden_channels=hidden_channels,
             out_channels=hsi_channels * out_factor,
             num_blocks=num_blocks,
+            norm_type=self.norm_type,
         )
         self.core_model.out[-1] = tail
         return head, tail
+
+    def _infer_norm_type_from_core(self) -> str:
+        has_bn = False
+        has_gn = False
+        for m in self.core_model.modules():
+            if isinstance(m, nn.BatchNorm2d):
+                has_bn = True
+            elif isinstance(m, nn.GroupNorm):
+                has_gn = True
+            if has_bn and has_gn:
+                break
+        if has_bn and not has_gn:
+            return "batch"
+        return "group"
 
     def freeze_core_model(self):
         self.core_model.train()
