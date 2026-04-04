@@ -281,7 +281,7 @@ if __name__ == "__main__":
     parser.add_argument("--save_dir", type=str, default="./models/hsi_adapter")
     parser.add_argument("--gpu", type=int, default=0)
 
-    parser.add_argument("--image_size", type=int, default=128)
+    parser.add_argument("--image_size", type=int, default=256)
     parser.add_argument("--hsi_channels", type=int, default=31)
     parser.add_argument("--adapter_hidden_channels", type=int, default=256)
     parser.add_argument("--adapter_num_blocks", type=int, default=4)
@@ -303,7 +303,7 @@ if __name__ == "__main__":
         help="When false, auto-fallback num_workers to 0 on Python>=3.12 for stability.",
     )
     parser.add_argument("--val_ratio", type=float, default=0.1)
-    parser.add_argument("--random_crop_size", type=int, default=128)
+    parser.add_argument("--random_crop_size", type=int, default=256)
     parser.add_argument("--use_grid_patches", action="store_true")
     parser.add_argument("--grid_patch_size", type=int, default=128)
     parser.add_argument("--rotation_aug", action="store_true")

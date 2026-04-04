@@ -19,8 +19,8 @@ python train_hsi_adapter.py \
   --save_dir "$SAVE_DIR" \
   --gpu "$GPU" \
   --hsi_channels "$HSI_CHANNELS" \
-  --image_size 128 \
-  --random_crop_size 128 \
+  --image_size 256 \
+  --random_crop_size 256 \
   --use_grid_patches \
   --grid_patch_size 128 \
   --rotation_aug \
