@@ -38,6 +38,32 @@ def _uncond_identity_condition(x_t, measurement, noisy_measurement, x_prev, x_0_
     return x_t, torch.tensor(0.0, device=x_t.device)
 
 
+def load_adapter_with_diagnostics(model: torch.nn.Module, ckpt: dict, logger) -> None:
+    state = ckpt["adapter_state_dict"] if "adapter_state_dict" in ckpt else ckpt
+    before = {
+        k: v.detach().float().cpu().clone()
+        for k, v in model.state_dict().items()
+        if ("head." in k or "tail." in k)
+    }
+    model.load_state_dict(state, strict=True)
+    after = model.state_dict()
+
+    deltas = []
+    for k, v0 in before.items():
+        v1 = after[k].detach().float().cpu()
+        deltas.append((v1 - v0).abs().mean().item())
+    mean_delta = float(np.mean(deltas)) if len(deltas) > 0 else 0.0
+    logger.info(
+        f"Adapter checkpoint loaded (strict=True). "
+        f"Head/Tail mean |Δw| vs fresh init = {mean_delta:.6e}."
+    )
+    if mean_delta < 1e-7:
+        logger.warning(
+            "Loaded adapter weights are almost identical to fresh init. "
+            "Please verify --adapter_ckpt points to a trained checkpoint (e.g. hsi_adapter_best.pt)."
+        )
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_config", type=str, default="configs/imagenet_model_config.yaml")
@@ -53,6 +79,7 @@ def main():
     parser.add_argument("--lora_enable_conv1d", action="store_true")
     parser.add_argument("--num_samples", type=int, default=8)
     parser.add_argument("--image_size", type=int, default=256)
+    parser.add_argument("--use_ckpt_sampling_args", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--save_dir", type=str, default="./results_hsi_uncond")
     args = parser.parse_args()
@@ -73,6 +100,9 @@ def main():
         args.lora_alpha = float(ckpt_args.get("lora_alpha", args.lora_alpha))
         args.lora_conv2d_target = ckpt_args.get("lora_conv2d_target", args.lora_conv2d_target)
         args.lora_enable_conv1d = bool(ckpt_args.get("lora_enable_conv1d", args.lora_enable_conv1d))
+        if args.use_ckpt_sampling_args and "image_size" in ckpt_args:
+            args.image_size = int(ckpt_args["image_size"])
+            logger.info(f"Using image_size={args.image_size} from adapter checkpoint args.")
 
     model_cfg = load_yaml(args.model_config)
     diffusion_cfg = load_yaml(args.diffusion_config)
@@ -89,8 +119,7 @@ def main():
         lora_conv2d_target=args.lora_conv2d_target,
         lora_enable_conv1d=args.lora_enable_conv1d,
     ).to(device)
-    state = ckpt["adapter_state_dict"] if "adapter_state_dict" in ckpt else ckpt
-    model.load_state_dict(state, strict=True)
+    load_adapter_with_diagnostics(model, ckpt, logger)
     model.eval()
 
     sampler = create_sampler(**diffusion_cfg)

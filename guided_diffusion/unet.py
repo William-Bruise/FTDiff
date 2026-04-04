@@ -1,6 +1,7 @@
 from abc import abstractmethod
 
 import math
+from pathlib import Path
 
 import numpy as np
 import torch as th
@@ -40,6 +41,7 @@ def create_model(
     use_fp16=False,
     use_new_attention_order=False,
     model_path='',
+    allow_random_init=False,
 ):
     if channel_mult == "":
         if image_size == 512:
@@ -84,10 +86,39 @@ def create_model(
         use_new_attention_order=use_new_attention_order,
     )
 
-    try:
-        model.load_state_dict(th.load(model_path, map_location='cpu'))
-    except Exception as e:
-        print(f"Got exception: {e} / Randomly initialize")
+    model_path = str(model_path).strip() if model_path is not None else ""
+    if model_path:
+        ckpt_path = Path(model_path).expanduser()
+        if not ckpt_path.is_absolute():
+            ckpt_path = Path.cwd() / ckpt_path
+        if not ckpt_path.exists():
+            msg = (
+                f"Pretrained diffusion checkpoint not found: {ckpt_path}. "
+                "Without a pretrained core, HSI adapter training/sampling quality will collapse. "
+                "Set a valid `model_path` in your model config."
+            )
+            if allow_random_init:
+                print(f"[WARN] {msg} Falling back to random initialization (--allow_random_init).")
+            else:
+                raise FileNotFoundError(msg)
+        else:
+            try:
+                model.load_state_dict(th.load(str(ckpt_path), map_location='cpu'))
+            except Exception as e:
+                msg = (
+                    f"Failed to load pretrained diffusion checkpoint from {ckpt_path}: {e}. "
+                    "Please verify the checkpoint matches current model config."
+                )
+                if allow_random_init:
+                    print(f"[WARN] {msg} Falling back to random initialization (--allow_random_init).")
+                else:
+                    raise RuntimeError(msg) from e
+    elif not allow_random_init:
+        raise ValueError(
+            "Empty `model_path` in model config. "
+            "A pretrained diffusion checkpoint is required by default. "
+            "If you intentionally want random init, set `allow_random_init: true` in the model config."
+        )
     return model
 
 class AttentionPool2d(nn.Module):
