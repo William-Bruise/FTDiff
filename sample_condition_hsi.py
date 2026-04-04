@@ -104,6 +104,32 @@ def compute_ssim_global(pred: torch.Tensor, target: torch.Tensor, eps: float = 1
     return float(np.mean(vals))
 
 
+def load_adapter_with_diagnostics(model: torch.nn.Module, ckpt: dict, logger) -> None:
+    state = ckpt['adapter_state_dict'] if 'adapter_state_dict' in ckpt else ckpt
+    before = {
+        k: v.detach().float().cpu().clone()
+        for k, v in model.state_dict().items()
+        if ("head." in k or "tail." in k)
+    }
+    model.load_state_dict(state, strict=True)
+    after = model.state_dict()
+
+    deltas = []
+    for k, v0 in before.items():
+        v1 = after[k].detach().float().cpu()
+        deltas.append((v1 - v0).abs().mean().item())
+    mean_delta = float(np.mean(deltas)) if len(deltas) > 0 else 0.0
+    logger.info(
+        f"Adapter checkpoint loaded (strict=True). "
+        f"Head/Tail mean |Δw| vs fresh init = {mean_delta:.6e}."
+    )
+    if mean_delta < 1e-7:
+        logger.warning(
+            "Loaded adapter weights are almost identical to fresh init. "
+            "Please verify --adapter_ckpt points to a trained checkpoint (e.g. hsi_adapter_best.pt)."
+        )
+
+
 def ensure_icvl_dataset(root: str, local_zip: str = None, fallback_dataset: Optional[str] = "ehu"):
     root_dir = os.path.abspath(root)
     has_hsi = False
@@ -165,6 +191,7 @@ def main():
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--save_dir', type=str, default='./results_hsi')
     parser.add_argument('--use_ckpt_model_args', action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument('--use_ckpt_sampling_args', action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument('--data_root_override', type=str, default=None)
     parser.add_argument('--auto_download_icvl', action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument('--icvl_local_zip', type=str, default=None)
@@ -198,6 +225,17 @@ def main():
     model_config = load_yaml(args.model_config)
     diffusion_config = load_yaml(args.diffusion_config)
     task_config = load_yaml(args.task_config)
+    if args.use_ckpt_sampling_args and isinstance(ckpt_args, dict) and "image_size" in ckpt_args:
+        ckpt_img_size = int(ckpt_args["image_size"])
+        old_size = int(task_config.get("data", {}).get("image_size", ckpt_img_size))
+        task_config.setdefault("data", {})["image_size"] = ckpt_img_size
+        if old_size != ckpt_img_size:
+            logger.warning(
+                f"Overriding task data.image_size from {old_size} to checkpoint image_size={ckpt_img_size} "
+                "for train/inference resolution consistency."
+            )
+        else:
+            logger.info(f"Using task data.image_size={ckpt_img_size} from checkpoint args.")
     if args.data_root_override:
         task_config["data"]["root"] = args.data_root_override
     if args.auto_download_icvl:
@@ -218,9 +256,8 @@ def main():
         lora_enable_conv1d=args.lora_enable_conv1d,
     ).to(device)
 
-    state = ckpt['adapter_state_dict'] if 'adapter_state_dict' in ckpt else ckpt
     try:
-        model.load_state_dict(state, strict=True)
+        load_adapter_with_diagnostics(model, ckpt, logger)
     except RuntimeError as e:
         raise RuntimeError(
             "Failed to load adapter checkpoint strictly. "

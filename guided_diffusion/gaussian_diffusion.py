@@ -197,8 +197,12 @@ class GaussianDiffusion:
                                       x_prev=img,
                                       x_0_hat=out['pred_xstart'])
             img = img.detach_()
-           
-            pbar.set_postfix({'distance': distance.item()}, refresh=False)
+
+            # distance is an L2 norm over the whole tensor; normalize for readability.
+            dist_val = distance.item()
+            elems_per_sample = max(1, int(measurement[0].numel()))
+            dist_rmse = dist_val / math.sqrt(elems_per_sample)
+            pbar.set_postfix({'distance': dist_val, 'distance_rmse': dist_rmse}, refresh=False)
             if record:
                 if idx % 10 == 0:
                     file_path = os.path.join(save_root, f"progress/x_{str(idx).zfill(4)}.png")
