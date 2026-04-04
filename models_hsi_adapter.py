@@ -46,6 +46,12 @@ class ConvHead(nn.Module):
             nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, stride=2, padding=1),
             _build_norm(norm_type, hidden_channels),
             nn.GELU(),
+            nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, stride=2, padding=1),
+            _build_norm(norm_type, hidden_channels),
+            nn.GELU(),
+            nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, stride=2, padding=1),
+            _build_norm(norm_type, hidden_channels),
+            nn.GELU(),
         )
         self.proj = nn.Conv2d(hidden_channels, out_channels, kernel_size=3, padding=1)
 
@@ -76,12 +82,18 @@ class ConvTail(nn.Module):
             nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, padding=1),
             _build_norm(norm_type, hidden_channels),
             nn.GELU(),
+            nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, padding=1),
+            _build_norm(norm_type, hidden_channels),
+            nn.GELU(),
+            nn.Conv2d(hidden_channels, hidden_channels, kernel_size=3, padding=1),
+            _build_norm(norm_type, hidden_channels),
+            nn.GELU(),
         )
         self.proj = nn.Conv2d(hidden_channels, out_channels, kernel_size=3, padding=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.blocks(self.stem(x))
-        x = torch.nn.functional.interpolate(x, scale_factor=2, mode="bilinear", align_corners=False)
+        x = torch.nn.functional.interpolate(x, scale_factor=8, mode="bilinear", align_corners=False)
         x = self.up(x)
         return self.proj(x)
 
@@ -277,10 +289,14 @@ class FrozenDiffusionWithAdapters(nn.Module):
                     p.requires_grad = True
 
     def trainable_parameters(self):
-        params = list(self.head.parameters()) + list(self.tail.parameters())
+        params = []
+        seen = set()
         for p in self.core_model.parameters():
             if p.requires_grad:
-                params.append(p)
+                pid = id(p)
+                if pid not in seen:
+                    params.append(p)
+                    seen.add(pid)
         return params
 
     def forward(self, x: torch.Tensor, t: torch.Tensor, **kwargs) -> torch.Tensor:
