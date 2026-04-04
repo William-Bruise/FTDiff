@@ -8,6 +8,7 @@ DATASET_NAME=${DATASET_NAME:-cave}
 DATA_ROOT=${DATA_ROOT:-./data/hsi/cave}
 SAVE_DIR=${SAVE_DIR:-./models/hsi_adapter}
 HSI_CHANNELS=${HSI_CHANNELS:-31}
+export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
 
 python scripts/download_hsi_dataset.py --dataset "$DATASET_NAME" --output "$DATA_ROOT"
 
@@ -28,14 +29,15 @@ python train_hsi_adapter.py \
   --adapter_num_blocks 4 \
   --core_peft none \
   --epochs 400 \
-  --batch_size 32 \
-  --num_workers 4 \
+  --batch_size 4 \
+  --num_workers 0 \
   --lr 2e-4 \
   --weight_decay 5e-5 \
   --grad_clip 1.0 \
-  --grad_accum_steps 1 \
+  --grad_accum_steps 8 \
   --warmup_ratio 0.05 \
   --min_lr_scale 0.1 \
+  --amp \
   --log_file train_log.csv \
   --log_interval 20 \
   --t_max_start_ratio 1.0 \
