@@ -2,6 +2,27 @@ import torch
 import torch.nn as nn
 
 
+class FeatureFiLM2d(nn.Module):
+    """Feature-wise linear modulation (FiLM): y = (1 + gamma(x)) * x + beta(x)."""
+
+    def __init__(self, channels: int):
+        super().__init__()
+        hidden = max(16, channels // 4)
+        self.pool = nn.AdaptiveAvgPool2d(1)
+        self.mlp = nn.Sequential(
+            nn.Conv2d(channels, hidden, kernel_size=1),
+            nn.GELU(),
+            nn.Conv2d(hidden, channels * 2, kernel_size=1),
+        )
+        nn.init.zeros_(self.mlp[-1].weight)
+        nn.init.zeros_(self.mlp[-1].bias)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        cond = self.mlp(self.pool(x))
+        gamma, beta = torch.chunk(cond, chunks=2, dim=1)
+        return (1.0 + gamma) * x + beta
+
+
 def _build_norm(norm_type: str, channels: int) -> nn.Module:
     if norm_type == "batch":
         return nn.BatchNorm2d(channels)
@@ -54,11 +75,13 @@ class ConvHead(nn.Module):
             nn.GELU(),
         )
         self.proj = nn.Conv2d(hidden_channels, out_channels, kernel_size=3, padding=1)
+        self.out_film = FeatureFiLM2d(out_channels)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.blocks(self.stem(x))
         x = self.down(x)
-        return self.proj(x)
+        x = self.proj(x)
+        return self.out_film(x)
 
 
 class ConvTail(nn.Module):
@@ -76,6 +99,7 @@ class ConvTail(nn.Module):
             _build_norm(norm_type, hidden_channels),
             nn.GELU(),
         )
+        self.in_film = FeatureFiLM2d(in_channels)
         self.blocks = nn.Sequential(*[ResidualConvBlock(hidden_channels, norm_type=norm_type) for _ in range(num_blocks)])
 
         self.up = nn.Sequential(
@@ -92,6 +116,7 @@ class ConvTail(nn.Module):
         self.proj = nn.Conv2d(hidden_channels, out_channels, kernel_size=3, padding=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.in_film(x)
         x = self.blocks(self.stem(x))
         x = torch.nn.functional.interpolate(x, scale_factor=8, mode="bilinear", align_corners=False)
         x = self.up(x)

@@ -196,6 +196,8 @@ def main():
     parser.add_argument('--auto_download_icvl', action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument('--icvl_local_zip', type=str, default=None)
     parser.add_argument('--download_fallback_dataset', type=str, default='ehu', choices=['ehu', 'cave', 'none'])
+    parser.add_argument('--test_split_ratio', type=float, default=0.3)
+    parser.add_argument('--split_seed', type=int, default=42)
     args = parser.parse_args()
 
     logger = get_logger()
@@ -296,13 +298,24 @@ def main():
         image_size=data_config.get('image_size', 256),
         channels=args.hsi_channels,
     )
+    n_total = len(dataset)
+    if not (0.0 <= args.test_split_ratio < 1.0):
+        raise ValueError(f"--test_split_ratio must be in [0,1), got {args.test_split_ratio}")
+    n_train = int((1.0 - args.test_split_ratio) * n_total)
+    rng = np.random.default_rng(args.split_seed)
+    perm = rng.permutation(n_total)
+    test_indices = perm[n_train:].tolist()
+    logger.info(
+        f"Dataset split: train={n_train} / test={len(test_indices)} "
+        f"(ratio={args.test_split_ratio:.2f}, seed={args.split_seed})."
+    )
 
     psnr_list = []
     ssim_list = []
-    for i in range(len(dataset)):
-        logger.info(f"Inference for image {i}")
-        fname = str(i).zfill(5) + '.png'
-        ref_img = dataset[i].unsqueeze(0).to(device)
+    for i, ds_idx in enumerate(test_indices):
+        logger.info(f"Inference for test image {i} (dataset idx={ds_idx})")
+        fname = str(ds_idx).zfill(5) + '.png'
+        ref_img = dataset[ds_idx].unsqueeze(0).to(device)
 
         if measure_config['operator']['name'] == 'inpainting':
             mask = build_hsi_inpainting_mask(ref_img, measure_config['mask_opt'])
@@ -322,7 +335,7 @@ def main():
         ssim_list.append(ssim_val)
         with open(metrics_csv, "a", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow([i, psnr_val, ssim_val])
+            writer.writerow([ds_idx, psnr_val, ssim_val])
 
         vis_y = to_vis_image(y_n)
         vis_ref = to_vis_image(ref_img)
