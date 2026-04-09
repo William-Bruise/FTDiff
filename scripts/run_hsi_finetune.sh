@@ -37,6 +37,7 @@ python train_hsi_adapter.py \
   --grad_accum_steps 8 \
   --warmup_ratio 0.05 \
   --min_lr_scale 0.1 \
+  --amp \
   --log_file train_log.csv \
   --log_interval 20 \
   --t_max_start_ratio 1.0 \
