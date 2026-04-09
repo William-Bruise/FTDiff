@@ -104,6 +104,32 @@ def compute_ssim_global(pred: torch.Tensor, target: torch.Tensor, eps: float = 1
     return float(np.mean(vals))
 
 
+def load_adapter_with_diagnostics(model: torch.nn.Module, ckpt: dict, logger) -> None:
+    state = ckpt['adapter_state_dict'] if 'adapter_state_dict' in ckpt else ckpt
+    before = {
+        k: v.detach().float().cpu().clone()
+        for k, v in model.state_dict().items()
+        if ("head." in k or "tail." in k)
+    }
+    model.load_state_dict(state, strict=True)
+    after = model.state_dict()
+
+    deltas = []
+    for k, v0 in before.items():
+        v1 = after[k].detach().float().cpu()
+        deltas.append((v1 - v0).abs().mean().item())
+    mean_delta = float(np.mean(deltas)) if len(deltas) > 0 else 0.0
+    logger.info(
+        f"Adapter checkpoint loaded (strict=True). "
+        f"Head/Tail mean |Δw| vs fresh init = {mean_delta:.6e}."
+    )
+    if mean_delta < 1e-7:
+        logger.warning(
+            "Loaded adapter weights are almost identical to fresh init. "
+            "Please verify --adapter_ckpt points to a trained checkpoint (e.g. hsi_adapter_best.pt)."
+        )
+
+
 def ensure_icvl_dataset(root: str, local_zip: str = None, fallback_dataset: Optional[str] = "ehu"):
     root_dir = os.path.abspath(root)
     has_hsi = False
@@ -165,10 +191,13 @@ def main():
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--save_dir', type=str, default='./results_hsi')
     parser.add_argument('--use_ckpt_model_args', action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument('--use_ckpt_sampling_args', action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument('--data_root_override', type=str, default=None)
     parser.add_argument('--auto_download_icvl', action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument('--icvl_local_zip', type=str, default=None)
     parser.add_argument('--download_fallback_dataset', type=str, default='ehu', choices=['ehu', 'cave', 'none'])
+    parser.add_argument('--test_split_ratio', type=float, default=0.3)
+    parser.add_argument('--split_seed', type=int, default=42)
     args = parser.parse_args()
 
     logger = get_logger()
@@ -198,6 +227,17 @@ def main():
     model_config = load_yaml(args.model_config)
     diffusion_config = load_yaml(args.diffusion_config)
     task_config = load_yaml(args.task_config)
+    if args.use_ckpt_sampling_args and isinstance(ckpt_args, dict) and "image_size" in ckpt_args:
+        ckpt_img_size = int(ckpt_args["image_size"])
+        old_size = int(task_config.get("data", {}).get("image_size", ckpt_img_size))
+        task_config.setdefault("data", {})["image_size"] = ckpt_img_size
+        if old_size != ckpt_img_size:
+            logger.warning(
+                f"Overriding task data.image_size from {old_size} to checkpoint image_size={ckpt_img_size} "
+                "for train/inference resolution consistency."
+            )
+        else:
+            logger.info(f"Using task data.image_size={ckpt_img_size} from checkpoint args.")
     if args.data_root_override:
         task_config["data"]["root"] = args.data_root_override
     if args.auto_download_icvl:
@@ -218,9 +258,8 @@ def main():
         lora_enable_conv1d=args.lora_enable_conv1d,
     ).to(device)
 
-    state = ckpt['adapter_state_dict'] if 'adapter_state_dict' in ckpt else ckpt
     try:
-        model.load_state_dict(state, strict=True)
+        load_adapter_with_diagnostics(model, ckpt, logger)
     except RuntimeError as e:
         raise RuntimeError(
             "Failed to load adapter checkpoint strictly. "
@@ -259,13 +298,24 @@ def main():
         image_size=data_config.get('image_size', 256),
         channels=args.hsi_channels,
     )
+    n_total = len(dataset)
+    if not (0.0 <= args.test_split_ratio < 1.0):
+        raise ValueError(f"--test_split_ratio must be in [0,1), got {args.test_split_ratio}")
+    n_train = int((1.0 - args.test_split_ratio) * n_total)
+    rng = np.random.default_rng(args.split_seed)
+    perm = rng.permutation(n_total)
+    test_indices = perm[n_train:].tolist()
+    logger.info(
+        f"Dataset split: train={n_train} / test={len(test_indices)} "
+        f"(ratio={args.test_split_ratio:.2f}, seed={args.split_seed})."
+    )
 
     psnr_list = []
     ssim_list = []
-    for i in range(len(dataset)):
-        logger.info(f"Inference for image {i}")
-        fname = str(i).zfill(5) + '.png'
-        ref_img = dataset[i].unsqueeze(0).to(device)
+    for i, ds_idx in enumerate(test_indices):
+        logger.info(f"Inference for test image {i} (dataset idx={ds_idx})")
+        fname = str(ds_idx).zfill(5) + '.png'
+        ref_img = dataset[ds_idx].unsqueeze(0).to(device)
 
         if measure_config['operator']['name'] == 'inpainting':
             mask = build_hsi_inpainting_mask(ref_img, measure_config['mask_opt'])
@@ -285,7 +335,7 @@ def main():
         ssim_list.append(ssim_val)
         with open(metrics_csv, "a", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow([i, psnr_val, ssim_val])
+            writer.writerow([ds_idx, psnr_val, ssim_val])
 
         vis_y = to_vis_image(y_n)
         vis_ref = to_vis_image(ref_img)
