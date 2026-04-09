@@ -73,8 +73,9 @@ def train(args):
     model_cfg = load_yaml(args.model_config)
     diffusion_cfg = load_yaml(args.diffusion_config)
 
-    # Default to gradient checkpointing for memory safety in HSI adapter training.
-    model_cfg["use_checkpoint"] = not args.disable_checkpoint
+    # Respect config by default; allow explicit CLI override only.
+    if args.disable_checkpoint:
+        model_cfg["use_checkpoint"] = False
 
     base_model = create_model(**model_cfg).to(device)
     adapter_model = build_hsi_adapter_model(
