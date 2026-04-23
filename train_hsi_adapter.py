@@ -95,11 +95,6 @@ def train(args):
         print(f"[Overfit] single-sample mode enabled: {args.single_sample_path}")
         if args.single_image_autoencoder:
             print("[Overfit] single_image_autoencoder=True: optimize direct x0 reconstruction at t=0.")
-        elif args.overfit_fixed_noise:
-            print(
-                f"[Overfit] fixed epsilon mode: fixed_timestep={args.overfit_fixed_timestep}, "
-                f"fixed_noise_seed={args.overfit_noise_seed}."
-            )
         if args.freeze_core:
             print(
                 "[Overfit][WARN] freeze_core=True trains only adapter head/tail. "
@@ -186,6 +181,16 @@ def train(args):
 
     fixed_eps_noise = None
     fixed_timestep = int(max(0, min(args.overfit_fixed_timestep, sampler.num_timesteps - 1)))
+    if args.single_sample_path and (not args.single_image_autoencoder) and args.overfit_fixed_noise:
+        print(
+            f"[Overfit] fixed epsilon mode: requested_timestep={args.overfit_fixed_timestep}, "
+            f"effective_timestep={fixed_timestep}, fixed_noise_seed={args.overfit_noise_seed}."
+        )
+        if fixed_timestep >= int(0.8 * (sampler.num_timesteps - 1)):
+            print(
+                "[Overfit][WARN] effective_timestep is very high (near pure-noise regime). "
+                "For faster overfit curves, try --overfit_fixed_timestep 50~300."
+            )
 
     for epoch in range(1, args.epochs + 1):
         adapter_model.train()

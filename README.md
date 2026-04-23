@@ -225,6 +225,8 @@ python train_hsi_adapter.py \
   --save_dir ./models/hsi_adapter_overfit_single_eps
 ```
 
+Tip: avoid very large `--overfit_fixed_timestep` (e.g., 900+), which is close to pure-noise and can make loss descent appear slow; use about `50~300` for clearer curves.
+
 Training logs are written to:
 - `SAVE_DIR/train_log.csv` (step + epoch metrics, LR, timestep range)
 
