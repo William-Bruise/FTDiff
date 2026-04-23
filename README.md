@@ -191,6 +191,20 @@ Note: by default `train_hsi_adapter.py` keeps the model config checkpoint behavi
 bash scripts/run_hsi_finetune.sh
 ```
 
+Single-image memorization sanity check (to separate method issues vs model issues):
+
+```bash
+python train_hsi_adapter.py \
+  --single_sample_path ./data/hsi/cave/your_scene.mat \
+  --overfit_repeats 2048 \
+  --epochs 200 \
+  --batch_size 16 \
+  --val_ratio 0.0 \
+  --save_dir ./models/hsi_adapter_overfit_single
+```
+
+When `--single_sample_path` is set, training and validation both use the same repeated image.
+
 Training logs are written to:
 - `SAVE_DIR/train_log.csv` (step + epoch metrics, LR, timestep range)
 
