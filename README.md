@@ -191,6 +191,42 @@ Note: by default `train_hsi_adapter.py` keeps the model config checkpoint behavi
 bash scripts/run_hsi_finetune.sh
 ```
 
+Single-image memorization sanity check (to separate method issues vs model issues):
+
+```bash
+python train_hsi_adapter.py \
+  --single_sample_path ./data/hsi/cave/your_scene.mat \
+  --overfit_repeats 2048 \
+  --epochs 200 \
+  --batch_size 16 \
+  --no-freeze_core \
+  --single_image_autoencoder \
+  --val_ratio 0.0 \
+  --save_dir ./models/hsi_adapter_overfit_single
+```
+
+When `--single_sample_path` is set, training and validation both use the same repeated image.
+For strict memorization checks, prefer `--no-freeze_core` (otherwise only adapter head/tail are trainable).
+If your diffusion epsilon loss stays near ~1, enable `--single_image_autoencoder` to run direct x0 reconstruction sanity checks at t=0.
+If you want to keep epsilon objective but still force a clear one-image overfit curve, keep `--no-single_image_autoencoder` and use fixed-noise mode:
+
+```bash
+python train_hsi_adapter.py \
+  --single_sample_path ./data/hsi/cave/your_scene.mat \
+  --overfit_repeats 2048 \
+  --epochs 200 \
+  --batch_size 16 \
+  --no-freeze_core \
+  --no-single_image_autoencoder \
+  --overfit_fixed_noise \
+  --overfit_fixed_timestep 200 \
+  --overfit_noise_seed 0 \
+  --val_ratio 0.0 \
+  --save_dir ./models/hsi_adapter_overfit_single_eps
+```
+
+Tip: avoid very large `--overfit_fixed_timestep` (e.g., 900+), which is close to pure-noise and can make loss descent appear slow; use about `50~300` for clearer curves.
+
 Training logs are written to:
 - `SAVE_DIR/train_log.csv` (step + epoch metrics, LR, timestep range)
 
