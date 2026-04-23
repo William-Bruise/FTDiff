@@ -199,11 +199,13 @@ python train_hsi_adapter.py \
   --overfit_repeats 2048 \
   --epochs 200 \
   --batch_size 16 \
+  --no-freeze_core \
   --val_ratio 0.0 \
   --save_dir ./models/hsi_adapter_overfit_single
 ```
 
 When `--single_sample_path` is set, training and validation both use the same repeated image.
+For strict memorization checks, prefer `--no-freeze_core` (otherwise only adapter head/tail are trainable).
 
 Training logs are written to:
 - `SAVE_DIR/train_log.csv` (step + epoch metrics, LR, timestep range)

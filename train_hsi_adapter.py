@@ -83,7 +83,7 @@ def train(args):
         hsi_channels=args.hsi_channels,
         adapter_hidden_channels=args.adapter_hidden_channels,
         adapter_num_blocks=args.adapter_num_blocks,
-        freeze_core=True,
+        freeze_core=args.freeze_core,
         core_peft=args.core_peft,
         lora_rank=args.lora_rank,
         lora_alpha=args.lora_alpha,
@@ -93,6 +93,11 @@ def train(args):
 
     if args.single_sample_path:
         print(f"[Overfit] single-sample mode enabled: {args.single_sample_path}")
+        if args.freeze_core:
+            print(
+                "[Overfit][WARN] freeze_core=True trains only adapter head/tail. "
+                "For strict one-image memorization sanity checks, use --no-freeze_core."
+            )
         dataset = SingleHSIOverfitDataset(
             sample_path=args.single_sample_path,
             image_size=args.image_size,
@@ -316,6 +321,13 @@ if __name__ == "__main__":
     parser.add_argument("--hsi_channels", type=int, default=31)
     parser.add_argument("--adapter_hidden_channels", type=int, default=256)
     parser.add_argument("--adapter_num_blocks", type=int, default=4)
+    parser.add_argument(
+        "--freeze_core",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Whether to freeze diffusion core and train only HSI adapters. "
+             "Set --no-freeze_core for strict single-image memorization tests.",
+    )
     parser.add_argument("--core_peft", type=str, default="none", choices=["none", "lora"])
     parser.add_argument("--lora_rank", type=int, default=1)
     parser.add_argument("--lora_alpha", type=float, default=1.0)
