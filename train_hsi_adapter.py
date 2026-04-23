@@ -95,6 +95,11 @@ def train(args):
         print(f"[Overfit] single-sample mode enabled: {args.single_sample_path}")
         if args.single_image_autoencoder:
             print("[Overfit] single_image_autoencoder=True: optimize direct x0 reconstruction at t=0.")
+        elif args.overfit_fixed_noise:
+            print(
+                f"[Overfit] fixed epsilon mode: fixed_timestep={args.overfit_fixed_timestep}, "
+                f"fixed_noise_seed={args.overfit_noise_seed}."
+            )
         if args.freeze_core:
             print(
                 "[Overfit][WARN] freeze_core=True trains only adapter head/tail. "
@@ -179,6 +184,9 @@ def train(args):
     best_val = float("inf")
     global_step = 0
 
+    fixed_eps_noise = None
+    fixed_timestep = int(max(0, min(args.overfit_fixed_timestep, sampler.num_timesteps - 1)))
+
     for epoch in range(1, args.epochs + 1):
         adapter_model.train()
         train_losses = []
@@ -193,8 +201,17 @@ def train(args):
                 t = torch.zeros((b,), dtype=torch.long, device=device)
                 x_t = x0
             else:
-                t = torch.randint(t_min, t_max, (b,), device=device)
-                noise = torch.randn_like(x0)
+                use_fixed_eps = bool(args.single_sample_path and args.overfit_fixed_noise)
+                if use_fixed_eps:
+                    t = torch.full((b,), fixed_timestep, dtype=torch.long, device=device)
+                    if fixed_eps_noise is None or fixed_eps_noise.shape[1:] != x0.shape[1:]:
+                        g = torch.Generator(device=device)
+                        g.manual_seed(int(args.overfit_noise_seed))
+                        fixed_eps_noise = torch.randn((1, *x0.shape[1:]), generator=g, device=device)
+                    noise = fixed_eps_noise.expand(b, -1, -1, -1)
+                else:
+                    t = torch.randint(t_min, t_max, (b,), device=device)
+                    noise = torch.randn_like(x0)
                 x_t = extract(sampler.sqrt_alphas_cumprod, t, x0.shape, device) * x0 + \
                     extract(sampler.sqrt_one_minus_alphas_cumprod, t, x0.shape, device) * noise
 
@@ -261,8 +278,17 @@ def train(args):
                     t = torch.zeros((b,), dtype=torch.long, device=device)
                     x_t = x0
                 else:
-                    t = torch.randint(0, sampler.num_timesteps, (b,), device=device)
-                    noise = torch.randn_like(x0)
+                    use_fixed_eps = bool(args.single_sample_path and args.overfit_fixed_noise)
+                    if use_fixed_eps:
+                        t = torch.full((b,), fixed_timestep, dtype=torch.long, device=device)
+                        if fixed_eps_noise is None or fixed_eps_noise.shape[1:] != x0.shape[1:]:
+                            g = torch.Generator(device=device)
+                            g.manual_seed(int(args.overfit_noise_seed))
+                            fixed_eps_noise = torch.randn((1, *x0.shape[1:]), generator=g, device=device)
+                        noise = fixed_eps_noise.expand(b, -1, -1, -1)
+                    else:
+                        t = torch.randint(0, sampler.num_timesteps, (b,), device=device)
+                        noise = torch.randn_like(x0)
                     x_t = extract(sampler.sqrt_alphas_cumprod, t, x0.shape, device) * x0 + \
                         extract(sampler.sqrt_one_minus_alphas_cumprod, t, x0.shape, device) * noise
                 pred = adapter_model(x_t, sampler._scale_timesteps(t))
@@ -336,6 +362,24 @@ if __name__ == "__main__":
         default=False,
         help="Debug-only memorization mode for single-image sanity checks: train direct x0 reconstruction at t=0 "
              "instead of diffusion epsilon prediction.",
+    )
+    parser.add_argument(
+        "--overfit_fixed_noise",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="In single-sample epsilon training, use a fixed noise tensor and fixed timestep to make memorization easier.",
+    )
+    parser.add_argument(
+        "--overfit_fixed_timestep",
+        type=int,
+        default=200,
+        help="Timestep used with --overfit_fixed_noise in single-sample epsilon mode.",
+    )
+    parser.add_argument(
+        "--overfit_noise_seed",
+        type=int,
+        default=0,
+        help="Random seed for the fixed epsilon noise tensor in single-sample epsilon mode.",
     )
     parser.add_argument("--save_dir", type=str, default="./models/hsi_adapter")
     parser.add_argument("--gpu", type=int, default=0)
