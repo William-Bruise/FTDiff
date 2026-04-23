@@ -93,6 +93,8 @@ def train(args):
 
     if args.single_sample_path:
         print(f"[Overfit] single-sample mode enabled: {args.single_sample_path}")
+        if args.single_image_autoencoder:
+            print("[Overfit] single_image_autoencoder=True: optimize direct x0 reconstruction at t=0.")
         if args.freeze_core:
             print(
                 "[Overfit][WARN] freeze_core=True trains only adapter head/tail. "
@@ -187,16 +189,23 @@ def train(args):
         for iter_idx, x0 in enumerate(pbar):
             x0 = x0.to(device, non_blocking=True)
             b = x0.shape[0]
-            t = torch.randint(t_min, t_max, (b,), device=device)
-            noise = torch.randn_like(x0)
-            x_t = extract(sampler.sqrt_alphas_cumprod, t, x0.shape, device) * x0 + \
-                extract(sampler.sqrt_one_minus_alphas_cumprod, t, x0.shape, device) * noise
+            if args.single_image_autoencoder:
+                t = torch.zeros((b,), dtype=torch.long, device=device)
+                x_t = x0
+            else:
+                t = torch.randint(t_min, t_max, (b,), device=device)
+                noise = torch.randn_like(x0)
+                x_t = extract(sampler.sqrt_alphas_cumprod, t, x0.shape, device) * x0 + \
+                    extract(sampler.sqrt_one_minus_alphas_cumprod, t, x0.shape, device) * noise
 
             with torch.amp.autocast(device_type=device.type, enabled=amp_enabled):
                 pred = adapter_model(x_t, sampler._scale_timesteps(t))
                 if pred.shape[1] == 2 * x0.shape[1]:
                     pred, _ = torch.chunk(pred, 2, dim=1)
-                loss = F.mse_loss(pred, noise)
+                if args.single_image_autoencoder:
+                    loss = F.mse_loss(pred, x0)
+                else:
+                    loss = F.mse_loss(pred, noise)
                 loss_for_backward = loss / args.grad_accum_steps
 
             if amp_enabled:
@@ -248,14 +257,21 @@ def train(args):
             for x0 in val_loader:
                 x0 = x0.to(device)
                 b = x0.shape[0]
-                t = torch.randint(0, sampler.num_timesteps, (b,), device=device)
-                noise = torch.randn_like(x0)
-                x_t = extract(sampler.sqrt_alphas_cumprod, t, x0.shape, device) * x0 + \
-                    extract(sampler.sqrt_one_minus_alphas_cumprod, t, x0.shape, device) * noise
+                if args.single_image_autoencoder:
+                    t = torch.zeros((b,), dtype=torch.long, device=device)
+                    x_t = x0
+                else:
+                    t = torch.randint(0, sampler.num_timesteps, (b,), device=device)
+                    noise = torch.randn_like(x0)
+                    x_t = extract(sampler.sqrt_alphas_cumprod, t, x0.shape, device) * x0 + \
+                        extract(sampler.sqrt_one_minus_alphas_cumprod, t, x0.shape, device) * noise
                 pred = adapter_model(x_t, sampler._scale_timesteps(t))
                 if pred.shape[1] == 2 * x0.shape[1]:
                     pred, _ = torch.chunk(pred, 2, dim=1)
-                val_losses.append(F.mse_loss(pred, noise).item())
+                if args.single_image_autoencoder:
+                    val_losses.append(F.mse_loss(pred, x0).item())
+                else:
+                    val_losses.append(F.mse_loss(pred, noise).item())
 
         mean_train = sum(train_losses) / max(1, len(train_losses))
         mean_val = sum(val_losses) / max(1, len(val_losses))
@@ -313,6 +329,13 @@ if __name__ == "__main__":
         type=int,
         default=1024,
         help="Virtual length when --single_sample_path is used; same image is repeated this many times per epoch.",
+    )
+    parser.add_argument(
+        "--single_image_autoencoder",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Debug-only memorization mode for single-image sanity checks: train direct x0 reconstruction at t=0 "
+             "instead of diffusion epsilon prediction.",
     )
     parser.add_argument("--save_dir", type=str, default="./models/hsi_adapter")
     parser.add_argument("--gpu", type=int, default=0)
