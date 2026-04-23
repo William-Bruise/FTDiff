@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader, random_split
 from tqdm.auto import tqdm
 import yaml
 
-from data.hsi_dataset import HyperspectralFolderDataset
+from data.hsi_dataset import HyperspectralFolderDataset, SingleHSIOverfitDataset
 from guided_diffusion.unet import create_model
 from guided_diffusion.gaussian_diffusion import create_sampler
 from models_hsi_adapter import build_hsi_adapter_model
@@ -83,7 +83,7 @@ def train(args):
         hsi_channels=args.hsi_channels,
         adapter_hidden_channels=args.adapter_hidden_channels,
         adapter_num_blocks=args.adapter_num_blocks,
-        freeze_core=True,
+        freeze_core=args.freeze_core,
         core_peft=args.core_peft,
         lora_rank=args.lora_rank,
         lora_alpha=args.lora_alpha,
@@ -91,23 +91,39 @@ def train(args):
         lora_enable_conv1d=args.lora_enable_conv1d,
     ).to(device)
 
-    dataset = HyperspectralFolderDataset(
-        root=args.data_root,
-        image_size=args.image_size,
-        channels=args.hsi_channels,
-        random_crop_size=args.random_crop_size,
-        repeats_per_scene=args.repeats_per_scene,
-        use_grid_patches=args.use_grid_patches,
-        grid_patch_size=args.grid_patch_size,
-        rotation_aug=args.rotation_aug,
-    )
+    if args.single_sample_path:
+        print(f"[Overfit] single-sample mode enabled: {args.single_sample_path}")
+        if args.freeze_core:
+            print(
+                "[Overfit][WARN] freeze_core=True trains only adapter head/tail. "
+                "For strict one-image memorization sanity checks, use --no-freeze_core."
+            )
+        dataset = SingleHSIOverfitDataset(
+            sample_path=args.single_sample_path,
+            image_size=args.image_size,
+            channels=args.hsi_channels,
+            repeats=args.overfit_repeats,
+        )
+        train_set = dataset
+        val_set = dataset
+    else:
+        dataset = HyperspectralFolderDataset(
+            root=args.data_root,
+            image_size=args.image_size,
+            channels=args.hsi_channels,
+            random_crop_size=args.random_crop_size,
+            repeats_per_scene=args.repeats_per_scene,
+            use_grid_patches=args.use_grid_patches,
+            grid_patch_size=args.grid_patch_size,
+            rotation_aug=args.rotation_aug,
+        )
 
-    if len(dataset) < 2:
-        raise RuntimeError("Need at least 2 HSI samples for train/val split.")
+        if len(dataset) < 2:
+            raise RuntimeError("Need at least 2 HSI samples for train/val split.")
 
-    val_len = max(1, int(len(dataset) * args.val_ratio))
-    train_len = len(dataset) - val_len
-    train_set, val_set = random_split(dataset, [train_len, val_len])
+        val_len = max(1, int(len(dataset) * args.val_ratio))
+        train_len = len(dataset) - val_len
+        train_set, val_set = random_split(dataset, [train_len, val_len])
 
     train_loader = DataLoader(
         train_set,
@@ -286,6 +302,18 @@ if __name__ == "__main__":
     parser.add_argument("--model_config", type=str, default="configs/imagenet_model_config.yaml")
     parser.add_argument("--diffusion_config", type=str, default="configs/diffusion_config.yaml")
     parser.add_argument("--data_root", type=str, default="./data/hsi/cave")
+    parser.add_argument(
+        "--single_sample_path",
+        type=str,
+        default="",
+        help="Path to one .npy/.mat HSI cube (or directory of per-band png files) for one-image overfit debugging.",
+    )
+    parser.add_argument(
+        "--overfit_repeats",
+        type=int,
+        default=1024,
+        help="Virtual length when --single_sample_path is used; same image is repeated this many times per epoch.",
+    )
     parser.add_argument("--save_dir", type=str, default="./models/hsi_adapter")
     parser.add_argument("--gpu", type=int, default=0)
 
@@ -293,6 +321,13 @@ if __name__ == "__main__":
     parser.add_argument("--hsi_channels", type=int, default=31)
     parser.add_argument("--adapter_hidden_channels", type=int, default=256)
     parser.add_argument("--adapter_num_blocks", type=int, default=4)
+    parser.add_argument(
+        "--freeze_core",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Whether to freeze diffusion core and train only HSI adapters. "
+             "Set --no-freeze_core for strict single-image memorization tests.",
+    )
     parser.add_argument("--core_peft", type=str, default="none", choices=["none", "lora"])
     parser.add_argument("--lora_rank", type=int, default=1)
     parser.add_argument("--lora_alpha", type=float, default=1.0)
