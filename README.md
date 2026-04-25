@@ -171,6 +171,12 @@ This repo now includes an HSI fine-tuning path that keeps the pretrained diffusi
 ## default uses CAVE (official Columbia zip)
 python scripts/download_hsi_dataset.py --dataset cave --output ./data/hsi/cave
 
+# optional: direct Train_Spec zip from Zenodo
+# source: https://zenodo.org/records/7839604/files/Train_Spec.zip?download=1
+mkdir -p ./data/hsi/train_spec
+wget -O ./data/hsi/train_spec/Train_Spec.zip "https://zenodo.org/records/7839604/files/Train_Spec.zip?download=1"
+unzip -o ./data/hsi/train_spec/Train_Spec.zip -d ./data/hsi/train_spec
+
 # optional datasets
 python scripts/download_hsi_dataset.py --dataset ehu --output ./data/hsi/ehu
 
