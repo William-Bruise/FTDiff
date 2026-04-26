@@ -20,10 +20,7 @@ python train_hsi_adapter.py \
   --gpu "$GPU" \
   --hsi_channels "$HSI_CHANNELS" \
   --image_size 256 \
-  --random_crop_size 256 \
-  --use_grid_patches \
-  --grid_patch_size 128 \
-  --rotation_aug \
+  --random_crop_size 0 \
   --repeats_per_scene 1 \
   --adapter_hidden_channels 256 \
   --adapter_num_blocks 4 \

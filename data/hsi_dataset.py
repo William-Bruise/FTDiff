@@ -202,3 +202,57 @@ class HyperspectralFolderDataset(Dataset):
 
         cube = _normalize_cube(cube)
         return _to_tensor_hsi(cube, target_size=self.target_size)
+
+
+def load_hsi_cube_from_path(path: str, channels: Optional[int] = None) -> np.ndarray:
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"HSI sample path does not exist: {p}")
+
+    if p.is_file():
+        if p.suffix.lower() == ".npy":
+            cube = np.load(p)
+        elif p.suffix.lower() == ".mat":
+            cube = _load_mat_cube(p)
+            if cube is None:
+                raise RuntimeError(f"No 3D cube found in {p}")
+        else:
+            raise ValueError(f"Unsupported file type for single HSI sample: {p.suffix}")
+    elif p.is_dir():
+        cube = _try_stack_png_bands(p)
+        if cube is None:
+            raise RuntimeError(f"Could not parse png-band scene in {p}")
+    else:
+        raise ValueError(f"Unsupported path type for single HSI sample: {p}")
+
+    cube = _ensure_hwc(cube)
+    if channels is not None and cube.shape[-1] != channels:
+        if cube.shape[-1] > channels:
+            cube = cube[..., :channels]
+        else:
+            pad = np.repeat(cube[..., -1:], channels - cube.shape[-1], axis=-1)
+            cube = np.concatenate([cube, pad], axis=-1)
+    return cube
+
+
+class SingleHSIOverfitDataset(Dataset):
+    """Overfit dataset that repeats one HSI scene for memorization sanity checks."""
+
+    def __init__(
+        self,
+        sample_path: str,
+        image_size: int = 256,
+        channels: Optional[int] = None,
+        repeats: int = 1024,
+    ):
+        self.target_size = (image_size, image_size) if image_size > 0 else None
+        self.repeats = max(1, int(repeats))
+        cube = load_hsi_cube_from_path(sample_path, channels=channels)
+        cube = _normalize_cube(cube)
+        self.tensor = _to_tensor_hsi(cube, target_size=self.target_size)
+
+    def __len__(self) -> int:
+        return self.repeats
+
+    def __getitem__(self, idx: int) -> torch.Tensor:
+        return self.tensor.clone()
