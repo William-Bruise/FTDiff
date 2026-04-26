@@ -197,6 +197,11 @@ Note: by default `train_hsi_adapter.py` keeps the model config checkpoint behavi
 bash scripts/run_hsi_finetune.sh
 ```
 
+For ARAD_1K (already ~950 images), recommended setting is **no augmentation** and direct resize to 256x256:
+- disable random crop (`--random_crop_size 0`)
+- do not pass `--use_grid_patches`
+- do not pass `--rotation_aug`
+
 Single-image memorization sanity check (to separate method issues vs model issues):
 
 ```bash
