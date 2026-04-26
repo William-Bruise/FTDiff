@@ -5,12 +5,17 @@ GPU=${GPU:-0}
 MODEL_CONFIG=${MODEL_CONFIG:-configs/imagenet_model_config.yaml}
 DIFFUSION_CONFIG=${DIFFUSION_CONFIG:-configs/diffusion_config.yaml}
 DATASET_NAME=${DATASET_NAME:-cave}
-DATA_ROOT=${DATA_ROOT:-./data/hsi/cave}
+DATA_ROOT=${DATA_ROOT:-./data/hsi/ARAD_1K}
+SKIP_DOWNLOAD=${SKIP_DOWNLOAD:-1}
 SAVE_DIR=${SAVE_DIR:-./models/hsi_adapter}
 HSI_CHANNELS=${HSI_CHANNELS:-31}
 export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
 
-python scripts/download_hsi_dataset.py --dataset "$DATASET_NAME" --output "$DATA_ROOT"
+if [[ "$SKIP_DOWNLOAD" != "1" ]]; then
+  python scripts/download_hsi_dataset.py --dataset "$DATASET_NAME" --output "$DATA_ROOT"
+else
+  echo "[Skip] Dataset download disabled (SKIP_DOWNLOAD=1). Using DATA_ROOT=$DATA_ROOT"
+fi
 
 python train_hsi_adapter.py \
   --model_config "$MODEL_CONFIG" \
