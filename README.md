@@ -204,6 +204,7 @@ For ARAD_1K (already ~950 images), recommended setting is **no augmentation** an
 - keep diffusion training objective aligned with pretrained model: `--loss_target epsilon` (this is now the default in `run_hsi_finetune.sh`).
 - for direct finetuning without warmup, set `--warmup_ratio 0.0` (this is now the default in `run_hsi_finetune.sh`).
 - `--loss_target mixed` / `--loss_target x0` are debug alternatives for diagnosis, not the default finetune objective.
+- fixed-seed qualitative monitoring is available during training: every `N` epochs it saves pseudo-RGB previews (3 selected bands) and full HSI `.npy` to `SAVE_DIR/eval_samples/` (`--eval_sample_interval`, `--eval_num_samples`, `--eval_sample_seed`).
 
 Single-image memorization sanity check (to separate method issues vs model issues):
 

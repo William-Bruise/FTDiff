@@ -43,5 +43,8 @@ python train_hsi_adapter.py \
   --amp \
   --log_file train_log.csv \
   --log_interval 20 \
+  --eval_sample_interval 10 \
+  --eval_num_samples 1 \
+  --eval_sample_seed 1234 \
   --t_max_start_ratio 1.0 \
   --t_max_end_ratio 1.0

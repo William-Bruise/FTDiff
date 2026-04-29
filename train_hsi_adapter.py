@@ -5,6 +5,8 @@ import os
 import sys
 from pathlib import Path
 
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.optim import AdamW
@@ -171,6 +173,8 @@ def train(args):
 
     out_dir = Path(args.save_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    vis_dir = out_dir / "eval_samples"
+    vis_dir.mkdir(parents=True, exist_ok=True)
     log_path = out_dir / args.log_file
     with open(log_path, "w", newline="") as f:
         writer = csv.writer(f)
@@ -181,6 +185,46 @@ def train(args):
 
     fixed_eps_noise = None
     fixed_timestep = int(max(0, min(args.overfit_fixed_timestep, sampler.num_timesteps - 1)))
+    fixed_sample_noise = None
+
+    def _to_rgb_preview(x: torch.Tensor) -> torch.Tensor:
+        c = x.shape[1]
+        ridx = int(0.8 * (c - 1))
+        gidx = int(0.5 * (c - 1))
+        bidx = int(0.2 * (c - 1))
+        return torch.stack([x[:, ridx], x[:, gidx], x[:, bidx]], dim=1)
+
+    def _save_eval_sample(epoch: int):
+        nonlocal fixed_sample_noise
+        if fixed_sample_noise is None:
+            g = torch.Generator(device=device)
+            g.manual_seed(int(args.eval_sample_seed))
+            fixed_sample_noise = torch.randn(
+                (args.eval_num_samples, args.hsi_channels, args.image_size, args.image_size),
+                generator=g,
+                device=device,
+            )
+        prev_state = adapter_model.training
+        adapter_model.eval()
+        with torch.no_grad():
+            sample = sampler.p_sample_loop(
+                model=adapter_model,
+                x_start=fixed_sample_noise.clone(),
+                measurement=torch.zeros_like(fixed_sample_noise),
+                measurement_cond_fn=lambda x_t, measurement, noisy_measurement, x_prev, x_0_hat: (
+                    x_t,
+                    torch.tensor(0.0, device=x_t.device),
+                ),
+                record=False,
+                save_root=str(vis_dir),
+            )
+        rgb = torch.clamp((_to_rgb_preview(sample) + 1.0) * 0.5, 0.0, 1.0)
+        for i in range(rgb.shape[0]):
+            img = rgb[i].detach().cpu().permute(1, 2, 0).numpy()
+            plt.imsave(str(vis_dir / f"epoch_{epoch:04d}_sample_{i:02d}.png"), img)
+        np.save(str(vis_dir / f"epoch_{epoch:04d}_hsi.npy"), sample.detach().cpu().numpy().astype(np.float32))
+        if prev_state:
+            adapter_model.train()
     if args.single_sample_path and (not args.single_image_autoencoder) and args.overfit_fixed_noise:
         print(
             f"[Overfit] fixed epsilon mode: requested_timestep={args.overfit_fixed_timestep}, "
@@ -349,6 +393,9 @@ def train(args):
                 t_max - 1,
             ])
 
+        if args.eval_sample_interval > 0 and (epoch % args.eval_sample_interval == 0):
+            _save_eval_sample(epoch)
+
         last_ckpt = out_dir / "hsi_adapter_last.pt"
         torch.save({
             "epoch": epoch,
@@ -478,6 +525,14 @@ if __name__ == "__main__":
     parser.add_argument("--amp", action="store_true")
     parser.add_argument("--log_file", type=str, default="train_log.csv")
     parser.add_argument("--log_interval", type=int, default=20)
+    parser.add_argument(
+        "--eval_sample_interval",
+        type=int,
+        default=20,
+        help="Save fixed-seed unconditional pseudo-RGB samples every N epochs; <=0 disables.",
+    )
+    parser.add_argument("--eval_num_samples", type=int, default=1)
+    parser.add_argument("--eval_sample_seed", type=int, default=1234)
 
     args = parser.parse_args()
 
