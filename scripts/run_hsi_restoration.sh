@@ -55,7 +55,7 @@ for TASK_CFG in "${TASK_CONFIGS[@]}"; do
     --adapter_ckpt "$ADAPTER_CKPT" \
     --hsi_channels "$HSI_CHANNELS" \
     --adapter_hidden_channels 256 \
-    --adapter_num_blocks 4 \
+    --adapter_num_blocks 1 \
     --core_peft none \
     --data_root_override "$DATA_ROOT" \
     --gpu "$GPU" \

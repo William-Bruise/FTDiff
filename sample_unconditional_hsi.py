@@ -71,7 +71,7 @@ def main():
     parser.add_argument("--adapter_ckpt", type=str, required=True)
     parser.add_argument("--hsi_channels", type=int, default=31)
     parser.add_argument("--adapter_hidden_channels", type=int, default=256)
-    parser.add_argument("--adapter_num_blocks", type=int, default=4)
+    parser.add_argument("--adapter_num_blocks", type=int, default=1)
     parser.add_argument("--core_peft", type=str, default="none", choices=["none", "lora"])
     parser.add_argument("--lora_rank", type=int, default=1)
     parser.add_argument("--lora_alpha", type=float, default=1.0)

@@ -28,7 +28,7 @@ python train_hsi_adapter.py \
   --random_crop_size 0 \
   --repeats_per_scene 1 \
   --adapter_hidden_channels 256 \
-  --adapter_num_blocks 4 \
+  --adapter_num_blocks 1 \
   --core_peft none \
   --epochs 400 \
   --batch_size 4 \

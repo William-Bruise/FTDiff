@@ -420,7 +420,7 @@ if __name__ == "__main__":
     parser.add_argument("--image_size", type=int, default=256)
     parser.add_argument("--hsi_channels", type=int, default=31)
     parser.add_argument("--adapter_hidden_channels", type=int, default=256)
-    parser.add_argument("--adapter_num_blocks", type=int, default=4)
+    parser.add_argument("--adapter_num_blocks", type=int, default=1)
     parser.add_argument(
         "--freeze_core",
         action=argparse.BooleanOptionalAction,
