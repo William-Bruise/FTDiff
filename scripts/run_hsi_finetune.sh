@@ -38,7 +38,7 @@ python train_hsi_adapter.py \
   --weight_decay 5e-5 \
   --grad_clip 1.0 \
   --grad_accum_steps 8 \
-  --warmup_ratio 0.05 \
+  --warmup_ratio 0.0 \
   --min_lr_scale 0.1 \
   --amp \
   --log_file train_log.csv \

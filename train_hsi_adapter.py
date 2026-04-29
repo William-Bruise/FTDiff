@@ -32,11 +32,11 @@ def extract(arr, t, shape, device):
 
 
 def build_scheduler(optimizer, warmup_steps: int, total_steps: int, min_lr_scale: float = 0.1):
-    warmup_steps = max(1, warmup_steps)
+    warmup_steps = max(0, warmup_steps)
     total_steps = max(warmup_steps + 1, total_steps)
 
     def lr_lambda(step: int):
-        if step < warmup_steps:
+        if warmup_steps > 0 and step < warmup_steps:
             return float(step + 1) / float(warmup_steps)
         progress = float(step - warmup_steps) / float(max(1, total_steps - warmup_steps))
         cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
@@ -161,7 +161,7 @@ def train(args):
 
     updates_per_epoch = math.ceil(len(train_loader) / args.grad_accum_steps)
     total_updates = max(1, updates_per_epoch * args.epochs)
-    warmup_updates = max(1, int(total_updates * args.warmup_ratio))
+    warmup_updates = max(0, int(total_updates * args.warmup_ratio))
     scheduler = build_scheduler(
         optim,
         warmup_steps=warmup_updates,
