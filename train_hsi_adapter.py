@@ -226,6 +226,20 @@ def train(args):
                     pred, _ = torch.chunk(pred, 2, dim=1)
                 if args.single_image_autoencoder:
                     loss = F.mse_loss(pred, x0)
+                elif args.loss_target == "x0":
+                    x0_hat = (
+                        x_t
+                        - extract(sampler.sqrt_one_minus_alphas_cumprod, t, x0.shape, device) * pred
+                    ) / extract(sampler.sqrt_alphas_cumprod, t, x0.shape, device)
+                    loss = F.mse_loss(x0_hat, x0)
+                elif args.loss_target == "mixed":
+                    x0_hat = (
+                        x_t
+                        - extract(sampler.sqrt_one_minus_alphas_cumprod, t, x0.shape, device) * pred
+                    ) / extract(sampler.sqrt_alphas_cumprod, t, x0.shape, device)
+                    loss_eps = F.mse_loss(pred, noise)
+                    loss_x0 = F.mse_loss(x0_hat, x0)
+                    loss = (1.0 - args.loss_x0_weight) * loss_eps + args.loss_x0_weight * loss_x0
                 else:
                     loss = F.mse_loss(pred, noise)
                 loss_for_backward = loss / args.grad_accum_steps
@@ -301,6 +315,20 @@ def train(args):
                     pred, _ = torch.chunk(pred, 2, dim=1)
                 if args.single_image_autoencoder:
                     val_losses.append(F.mse_loss(pred, x0).item())
+                elif args.loss_target == "x0":
+                    x0_hat = (
+                        x_t
+                        - extract(sampler.sqrt_one_minus_alphas_cumprod, t, x0.shape, device) * pred
+                    ) / extract(sampler.sqrt_alphas_cumprod, t, x0.shape, device)
+                    val_losses.append(F.mse_loss(x0_hat, x0).item())
+                elif args.loss_target == "mixed":
+                    x0_hat = (
+                        x_t
+                        - extract(sampler.sqrt_one_minus_alphas_cumprod, t, x0.shape, device) * pred
+                    ) / extract(sampler.sqrt_alphas_cumprod, t, x0.shape, device)
+                    loss_eps = F.mse_loss(pred, noise).item()
+                    loss_x0 = F.mse_loss(x0_hat, x0).item()
+                    val_losses.append((1.0 - args.loss_x0_weight) * loss_eps + args.loss_x0_weight * loss_x0)
                 else:
                     val_losses.append(F.mse_loss(pred, noise).item())
 
@@ -425,6 +453,19 @@ if __name__ == "__main__":
     parser.add_argument("--repeats_per_scene", type=int, default=32)
 
     parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument(
+        "--loss_target",
+        type=str,
+        default="epsilon",
+        choices=["epsilon", "x0", "mixed"],
+        help="Training loss target. epsilon: MSE(eps_pred, eps); x0: MSE(reconstructed_x0, x0); mixed: weighted sum.",
+    )
+    parser.add_argument(
+        "--loss_x0_weight",
+        type=float,
+        default=0.3,
+        help="When --loss_target mixed, use loss=(1-w)*eps_loss + w*x0_loss.",
+    )
     parser.add_argument("--weight_decay", type=float, default=5e-5)
     parser.add_argument("--grad_clip", type=float, default=1.0)
     parser.add_argument("--grad_accum_steps", type=int, default=1)

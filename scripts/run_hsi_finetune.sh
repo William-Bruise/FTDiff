@@ -34,6 +34,7 @@ python train_hsi_adapter.py \
   --batch_size 4 \
   --num_workers 0 \
   --lr 2e-4 \
+  --loss_target epsilon \
   --weight_decay 5e-5 \
   --grad_clip 1.0 \
   --grad_accum_steps 8 \

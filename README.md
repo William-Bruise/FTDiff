@@ -201,6 +201,8 @@ For ARAD_1K (already ~950 images), recommended setting is **no augmentation** an
 - disable random crop (`--random_crop_size 0`)
 - do not pass `--use_grid_patches`
 - do not pass `--rotation_aug`
+- keep diffusion training objective aligned with pretrained model: `--loss_target epsilon` (this is now the default in `run_hsi_finetune.sh`).
+- `--loss_target mixed` / `--loss_target x0` are debug alternatives for diagnosis, not the default finetune objective.
 
 Single-image memorization sanity check (to separate method issues vs model issues):
 
