@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from guided_diffusion.unet import AttentionBlock
 
 
 class FeatureFiLM2d(nn.Module):
@@ -219,6 +220,7 @@ class FrozenDiffusionWithAdapters(nn.Module):
         self.lora_conv2d_target = lora_conv2d_target
         self.lora_enable_conv1d = lora_enable_conv1d
         self.norm_type = self._infer_norm_type_from_core()
+        self._attn_kv_hooks = []
 
         self.head, self.tail = self._replace_core_io_with_cnn_adapters(
             hsi_channels=hsi_channels,
@@ -243,6 +245,8 @@ class FrozenDiffusionWithAdapters(nn.Module):
                 f"[LoRA] injected rank={lora_rank} adapters into {n} Conv layers in diffusion core "
                 f"(conv2d_target={lora_conv2d_target}, conv1d={lora_enable_conv1d})."
             )
+        elif core_peft == "attn_kv":
+            print("[Attn-KV] will train only K/V slices in attention qkv projections of diffusion core.")
 
         if freeze_core:
             self.freeze_core_model()
@@ -312,6 +316,35 @@ class FrozenDiffusionWithAdapters(nn.Module):
             for name, p in self.core_model.named_parameters():
                 if "down.weight" in name or "up.weight" in name:
                     p.requires_grad = True
+        elif self.core_peft == "attn_kv":
+            self._enable_attention_kv_training_only()
+
+    def _enable_attention_kv_training_only(self):
+        enabled = 0
+        for m in self.core_model.modules():
+            if not isinstance(m, AttentionBlock):
+                continue
+            if not hasattr(m, "qkv") or not isinstance(m.qkv, nn.Conv1d):
+                continue
+            qkv = m.qkv
+            qkv.weight.requires_grad = True
+            if qkv.bias is not None:
+                qkv.bias.requires_grad = True
+            out_ch = qkv.out_channels
+            if out_ch % 3 != 0:
+                continue
+            ch = out_ch // 3
+
+            def _mask_q_grad(g, ch=ch):
+                g = g.clone()
+                g[:ch] = 0
+                return g
+
+            self._attn_kv_hooks.append(qkv.weight.register_hook(_mask_q_grad))
+            if qkv.bias is not None:
+                self._attn_kv_hooks.append(qkv.bias.register_hook(_mask_q_grad))
+            enabled += 1
+        print(f"[Attn-KV] enabled gradient masking on {enabled} attention qkv layers (Q frozen, K/V trainable).")
 
     def trainable_parameters(self):
         params = []
