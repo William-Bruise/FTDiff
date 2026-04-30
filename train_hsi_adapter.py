@@ -5,6 +5,8 @@ import os
 import sys
 from pathlib import Path
 
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.optim import AdamW
@@ -13,7 +15,7 @@ from torch.utils.data import DataLoader, random_split
 from tqdm.auto import tqdm
 import yaml
 
-from data.hsi_dataset import HyperspectralFolderDataset
+from data.hsi_dataset import HyperspectralFolderDataset, SingleHSIOverfitDataset
 from guided_diffusion.unet import create_model
 from guided_diffusion.gaussian_diffusion import create_sampler
 from models_hsi_adapter import build_hsi_adapter_model
@@ -32,11 +34,11 @@ def extract(arr, t, shape, device):
 
 
 def build_scheduler(optimizer, warmup_steps: int, total_steps: int, min_lr_scale: float = 0.1):
-    warmup_steps = max(1, warmup_steps)
+    warmup_steps = max(0, warmup_steps)
     total_steps = max(warmup_steps + 1, total_steps)
 
     def lr_lambda(step: int):
-        if step < warmup_steps:
+        if warmup_steps > 0 and step < warmup_steps:
             return float(step + 1) / float(warmup_steps)
         progress = float(step - warmup_steps) / float(max(1, total_steps - warmup_steps))
         cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
@@ -83,7 +85,7 @@ def train(args):
         hsi_channels=args.hsi_channels,
         adapter_hidden_channels=args.adapter_hidden_channels,
         adapter_num_blocks=args.adapter_num_blocks,
-        freeze_core=True,
+        freeze_core=args.freeze_core,
         core_peft=args.core_peft,
         lora_rank=args.lora_rank,
         lora_alpha=args.lora_alpha,
@@ -91,23 +93,41 @@ def train(args):
         lora_enable_conv1d=args.lora_enable_conv1d,
     ).to(device)
 
-    dataset = HyperspectralFolderDataset(
-        root=args.data_root,
-        image_size=args.image_size,
-        channels=args.hsi_channels,
-        random_crop_size=args.random_crop_size,
-        repeats_per_scene=args.repeats_per_scene,
-        use_grid_patches=args.use_grid_patches,
-        grid_patch_size=args.grid_patch_size,
-        rotation_aug=args.rotation_aug,
-    )
+    if args.single_sample_path:
+        print(f"[Overfit] single-sample mode enabled: {args.single_sample_path}")
+        if args.single_image_autoencoder:
+            print("[Overfit] single_image_autoencoder=True: optimize direct x0 reconstruction at t=0.")
+        if args.freeze_core:
+            print(
+                "[Overfit][WARN] freeze_core=True trains only adapter head/tail. "
+                "For strict one-image memorization sanity checks, use --no-freeze_core."
+            )
+        dataset = SingleHSIOverfitDataset(
+            sample_path=args.single_sample_path,
+            image_size=args.image_size,
+            channels=args.hsi_channels,
+            repeats=args.overfit_repeats,
+        )
+        train_set = dataset
+        val_set = dataset
+    else:
+        dataset = HyperspectralFolderDataset(
+            root=args.data_root,
+            image_size=args.image_size,
+            channels=args.hsi_channels,
+            random_crop_size=args.random_crop_size,
+            repeats_per_scene=args.repeats_per_scene,
+            use_grid_patches=args.use_grid_patches,
+            grid_patch_size=args.grid_patch_size,
+            rotation_aug=args.rotation_aug,
+        )
 
-    if len(dataset) < 2:
-        raise RuntimeError("Need at least 2 HSI samples for train/val split.")
+        if len(dataset) < 2:
+            raise RuntimeError("Need at least 2 HSI samples for train/val split.")
 
-    val_len = max(1, int(len(dataset) * args.val_ratio))
-    train_len = len(dataset) - val_len
-    train_set, val_set = random_split(dataset, [train_len, val_len])
+        val_len = max(1, int(len(dataset) * args.val_ratio))
+        train_len = len(dataset) - val_len
+        train_set, val_set = random_split(dataset, [train_len, val_len])
 
     train_loader = DataLoader(
         train_set,
@@ -143,7 +163,7 @@ def train(args):
 
     updates_per_epoch = math.ceil(len(train_loader) / args.grad_accum_steps)
     total_updates = max(1, updates_per_epoch * args.epochs)
-    warmup_updates = max(1, int(total_updates * args.warmup_ratio))
+    warmup_updates = max(0, int(total_updates * args.warmup_ratio))
     scheduler = build_scheduler(
         optim,
         warmup_steps=warmup_updates,
@@ -153,6 +173,16 @@ def train(args):
 
     out_dir = Path(args.save_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    vis_dir = out_dir / "eval_samples"
+    vis_dir.mkdir(parents=True, exist_ok=True)
+    print(f"[EvalSample] directory: {vis_dir.resolve()}")
+    if args.eval_sample_interval <= 0:
+        print("[EvalSample] disabled (eval_sample_interval <= 0).")
+    else:
+        print(
+            f"[EvalSample] enabled: every {args.eval_sample_interval} epoch(s), "
+            f"num_samples={args.eval_num_samples}, seed={args.eval_sample_seed}."
+        )
     log_path = out_dir / args.log_file
     with open(log_path, "w", newline="") as f:
         writer = csv.writer(f)
@@ -160,6 +190,70 @@ def train(args):
 
     best_val = float("inf")
     global_step = 0
+
+    fixed_eps_noise = None
+    fixed_timestep = int(max(0, min(args.overfit_fixed_timestep, sampler.num_timesteps - 1)))
+    fixed_sample_noise = None
+
+    def _to_rgb_preview(x: torch.Tensor) -> torch.Tensor:
+        c = x.shape[1]
+        ridx = int(0.8 * (c - 1))
+        gidx = int(0.5 * (c - 1))
+        bidx = int(0.2 * (c - 1))
+        return torch.stack([x[:, ridx], x[:, gidx], x[:, bidx]], dim=1)
+
+    def _save_eval_sample(epoch: int):
+        nonlocal fixed_sample_noise
+        if fixed_sample_noise is None:
+            g = torch.Generator(device=device)
+            g.manual_seed(int(args.eval_sample_seed))
+            fixed_sample_noise = torch.randn(
+                (args.eval_num_samples, args.hsi_channels, args.image_size, args.image_size),
+                generator=g,
+                device=device,
+            )
+        prev_state = adapter_model.training
+        adapter_model.eval()
+        with torch.no_grad():
+            sample = sampler.p_sample_loop(
+                model=adapter_model,
+                x_start=fixed_sample_noise.clone(),
+                measurement=torch.zeros_like(fixed_sample_noise),
+                measurement_cond_fn=lambda x_t, measurement, noisy_measurement, x_prev, x_0_hat: (
+                    x_t,
+                    torch.tensor(0.0, device=x_t.device),
+                ),
+                record=False,
+                save_root=str(vis_dir),
+            )
+        rgb = torch.clamp((_to_rgb_preview(sample) + 1.0) * 0.5, 0.0, 1.0)
+        for i in range(rgb.shape[0]):
+            img = rgb[i].detach().cpu().permute(1, 2, 0).numpy()
+            plt.imsave(str(vis_dir / f"epoch_{epoch:04d}_sample_{i:02d}.png"), img)
+        # Save one grid preview for quick glance.
+        n = rgb.shape[0]
+        fig, axes = plt.subplots(1, n, figsize=(4 * n, 4), squeeze=False)
+        for i in range(n):
+            axes[0, i].imshow(rgb[i].detach().cpu().permute(1, 2, 0).numpy())
+            axes[0, i].set_title(f"epoch {epoch} / sample {i}")
+            axes[0, i].axis("off")
+        fig.tight_layout()
+        fig.savefig(str(vis_dir / f"epoch_{epoch:04d}_grid.png"), dpi=150)
+        plt.close(fig)
+        np.save(str(vis_dir / f"epoch_{epoch:04d}_hsi.npy"), sample.detach().cpu().numpy().astype(np.float32))
+        print(f"[EvalSample] saved epoch {epoch} previews and npy to {vis_dir.resolve()}")
+        if prev_state:
+            adapter_model.train()
+    if args.single_sample_path and (not args.single_image_autoencoder) and args.overfit_fixed_noise:
+        print(
+            f"[Overfit] fixed epsilon mode: requested_timestep={args.overfit_fixed_timestep}, "
+            f"effective_timestep={fixed_timestep}, fixed_noise_seed={args.overfit_noise_seed}."
+        )
+        if fixed_timestep >= int(0.8 * (sampler.num_timesteps - 1)):
+            print(
+                "[Overfit][WARN] effective_timestep is very high (near pure-noise regime). "
+                "For faster overfit curves, try --overfit_fixed_timestep 50~300."
+            )
 
     for epoch in range(1, args.epochs + 1):
         adapter_model.train()
@@ -171,16 +265,46 @@ def train(args):
         for iter_idx, x0 in enumerate(pbar):
             x0 = x0.to(device, non_blocking=True)
             b = x0.shape[0]
-            t = torch.randint(t_min, t_max, (b,), device=device)
-            noise = torch.randn_like(x0)
-            x_t = extract(sampler.sqrt_alphas_cumprod, t, x0.shape, device) * x0 + \
-                extract(sampler.sqrt_one_minus_alphas_cumprod, t, x0.shape, device) * noise
+            if args.single_image_autoencoder:
+                t = torch.zeros((b,), dtype=torch.long, device=device)
+                x_t = x0
+            else:
+                use_fixed_eps = bool(args.single_sample_path and args.overfit_fixed_noise)
+                if use_fixed_eps:
+                    t = torch.full((b,), fixed_timestep, dtype=torch.long, device=device)
+                    if fixed_eps_noise is None or fixed_eps_noise.shape[1:] != x0.shape[1:]:
+                        g = torch.Generator(device=device)
+                        g.manual_seed(int(args.overfit_noise_seed))
+                        fixed_eps_noise = torch.randn((1, *x0.shape[1:]), generator=g, device=device)
+                    noise = fixed_eps_noise.expand(b, -1, -1, -1)
+                else:
+                    t = torch.randint(t_min, t_max, (b,), device=device)
+                    noise = torch.randn_like(x0)
+                x_t = extract(sampler.sqrt_alphas_cumprod, t, x0.shape, device) * x0 + \
+                    extract(sampler.sqrt_one_minus_alphas_cumprod, t, x0.shape, device) * noise
 
             with torch.amp.autocast(device_type=device.type, enabled=amp_enabled):
                 pred = adapter_model(x_t, sampler._scale_timesteps(t))
                 if pred.shape[1] == 2 * x0.shape[1]:
                     pred, _ = torch.chunk(pred, 2, dim=1)
-                loss = F.mse_loss(pred, noise)
+                if args.single_image_autoencoder:
+                    loss = F.mse_loss(pred, x0)
+                elif args.loss_target == "x0":
+                    x0_hat = (
+                        x_t
+                        - extract(sampler.sqrt_one_minus_alphas_cumprod, t, x0.shape, device) * pred
+                    ) / extract(sampler.sqrt_alphas_cumprod, t, x0.shape, device)
+                    loss = F.mse_loss(x0_hat, x0)
+                elif args.loss_target == "mixed":
+                    x0_hat = (
+                        x_t
+                        - extract(sampler.sqrt_one_minus_alphas_cumprod, t, x0.shape, device) * pred
+                    ) / extract(sampler.sqrt_alphas_cumprod, t, x0.shape, device)
+                    loss_eps = F.mse_loss(pred, noise)
+                    loss_x0 = F.mse_loss(x0_hat, x0)
+                    loss = (1.0 - args.loss_x0_weight) * loss_eps + args.loss_x0_weight * loss_x0
+                else:
+                    loss = F.mse_loss(pred, noise)
                 loss_for_backward = loss / args.grad_accum_steps
 
             if amp_enabled:
@@ -232,14 +356,44 @@ def train(args):
             for x0 in val_loader:
                 x0 = x0.to(device)
                 b = x0.shape[0]
-                t = torch.randint(0, sampler.num_timesteps, (b,), device=device)
-                noise = torch.randn_like(x0)
-                x_t = extract(sampler.sqrt_alphas_cumprod, t, x0.shape, device) * x0 + \
-                    extract(sampler.sqrt_one_minus_alphas_cumprod, t, x0.shape, device) * noise
+                if args.single_image_autoencoder:
+                    t = torch.zeros((b,), dtype=torch.long, device=device)
+                    x_t = x0
+                else:
+                    use_fixed_eps = bool(args.single_sample_path and args.overfit_fixed_noise)
+                    if use_fixed_eps:
+                        t = torch.full((b,), fixed_timestep, dtype=torch.long, device=device)
+                        if fixed_eps_noise is None or fixed_eps_noise.shape[1:] != x0.shape[1:]:
+                            g = torch.Generator(device=device)
+                            g.manual_seed(int(args.overfit_noise_seed))
+                            fixed_eps_noise = torch.randn((1, *x0.shape[1:]), generator=g, device=device)
+                        noise = fixed_eps_noise.expand(b, -1, -1, -1)
+                    else:
+                        t = torch.randint(0, sampler.num_timesteps, (b,), device=device)
+                        noise = torch.randn_like(x0)
+                    x_t = extract(sampler.sqrt_alphas_cumprod, t, x0.shape, device) * x0 + \
+                        extract(sampler.sqrt_one_minus_alphas_cumprod, t, x0.shape, device) * noise
                 pred = adapter_model(x_t, sampler._scale_timesteps(t))
                 if pred.shape[1] == 2 * x0.shape[1]:
                     pred, _ = torch.chunk(pred, 2, dim=1)
-                val_losses.append(F.mse_loss(pred, noise).item())
+                if args.single_image_autoencoder:
+                    val_losses.append(F.mse_loss(pred, x0).item())
+                elif args.loss_target == "x0":
+                    x0_hat = (
+                        x_t
+                        - extract(sampler.sqrt_one_minus_alphas_cumprod, t, x0.shape, device) * pred
+                    ) / extract(sampler.sqrt_alphas_cumprod, t, x0.shape, device)
+                    val_losses.append(F.mse_loss(x0_hat, x0).item())
+                elif args.loss_target == "mixed":
+                    x0_hat = (
+                        x_t
+                        - extract(sampler.sqrt_one_minus_alphas_cumprod, t, x0.shape, device) * pred
+                    ) / extract(sampler.sqrt_alphas_cumprod, t, x0.shape, device)
+                    loss_eps = F.mse_loss(pred, noise).item()
+                    loss_x0 = F.mse_loss(x0_hat, x0).item()
+                    val_losses.append((1.0 - args.loss_x0_weight) * loss_eps + args.loss_x0_weight * loss_x0)
+                else:
+                    val_losses.append(F.mse_loss(pred, noise).item())
 
         mean_train = sum(train_losses) / max(1, len(train_losses))
         mean_val = sum(val_losses) / max(1, len(val_losses))
@@ -257,6 +411,9 @@ def train(args):
                 t_min,
                 t_max - 1,
             ])
+
+        if args.eval_sample_interval > 0 and (epoch % args.eval_sample_interval == 0):
+            _save_eval_sample(epoch)
 
         last_ckpt = out_dir / "hsi_adapter_last.pt"
         torch.save({
@@ -286,13 +443,57 @@ if __name__ == "__main__":
     parser.add_argument("--model_config", type=str, default="configs/imagenet_model_config.yaml")
     parser.add_argument("--diffusion_config", type=str, default="configs/diffusion_config.yaml")
     parser.add_argument("--data_root", type=str, default="./data/hsi/cave")
+    parser.add_argument(
+        "--single_sample_path",
+        type=str,
+        default="",
+        help="Path to one .npy/.mat HSI cube (or directory of per-band png files) for one-image overfit debugging.",
+    )
+    parser.add_argument(
+        "--overfit_repeats",
+        type=int,
+        default=1024,
+        help="Virtual length when --single_sample_path is used; same image is repeated this many times per epoch.",
+    )
+    parser.add_argument(
+        "--single_image_autoencoder",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Debug-only memorization mode for single-image sanity checks: train direct x0 reconstruction at t=0 "
+             "instead of diffusion epsilon prediction.",
+    )
+    parser.add_argument(
+        "--overfit_fixed_noise",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="In single-sample epsilon training, use a fixed noise tensor and fixed timestep to make memorization easier.",
+    )
+    parser.add_argument(
+        "--overfit_fixed_timestep",
+        type=int,
+        default=200,
+        help="Timestep used with --overfit_fixed_noise in single-sample epsilon mode.",
+    )
+    parser.add_argument(
+        "--overfit_noise_seed",
+        type=int,
+        default=0,
+        help="Random seed for the fixed epsilon noise tensor in single-sample epsilon mode.",
+    )
     parser.add_argument("--save_dir", type=str, default="./models/hsi_adapter")
     parser.add_argument("--gpu", type=int, default=0)
 
     parser.add_argument("--image_size", type=int, default=256)
     parser.add_argument("--hsi_channels", type=int, default=31)
     parser.add_argument("--adapter_hidden_channels", type=int, default=256)
-    parser.add_argument("--adapter_num_blocks", type=int, default=4)
+    parser.add_argument("--adapter_num_blocks", type=int, default=1)
+    parser.add_argument(
+        "--freeze_core",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Whether to freeze diffusion core and train only HSI adapters. "
+             "Set --no-freeze_core for strict single-image memorization tests.",
+    )
     parser.add_argument("--core_peft", type=str, default="none", choices=["none", "lora"])
     parser.add_argument("--lora_rank", type=int, default=1)
     parser.add_argument("--lora_alpha", type=float, default=1.0)
@@ -318,6 +519,19 @@ if __name__ == "__main__":
     parser.add_argument("--repeats_per_scene", type=int, default=32)
 
     parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument(
+        "--loss_target",
+        type=str,
+        default="epsilon",
+        choices=["epsilon", "x0", "mixed"],
+        help="Training loss target. epsilon: MSE(eps_pred, eps); x0: MSE(reconstructed_x0, x0); mixed: weighted sum.",
+    )
+    parser.add_argument(
+        "--loss_x0_weight",
+        type=float,
+        default=0.3,
+        help="When --loss_target mixed, use loss=(1-w)*eps_loss + w*x0_loss.",
+    )
     parser.add_argument("--weight_decay", type=float, default=5e-5)
     parser.add_argument("--grad_clip", type=float, default=1.0)
     parser.add_argument("--grad_accum_steps", type=int, default=1)
@@ -330,6 +544,14 @@ if __name__ == "__main__":
     parser.add_argument("--amp", action="store_true")
     parser.add_argument("--log_file", type=str, default="train_log.csv")
     parser.add_argument("--log_interval", type=int, default=20)
+    parser.add_argument(
+        "--eval_sample_interval",
+        type=int,
+        default=20,
+        help="Save fixed-seed unconditional pseudo-RGB samples every N epochs; <=0 disables.",
+    )
+    parser.add_argument("--eval_num_samples", type=int, default=1)
+    parser.add_argument("--eval_sample_seed", type=int, default=1234)
 
     args = parser.parse_args()
 

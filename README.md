@@ -171,6 +171,12 @@ This repo now includes an HSI fine-tuning path that keeps the pretrained diffusi
 ## default uses CAVE (official Columbia zip)
 python scripts/download_hsi_dataset.py --dataset cave --output ./data/hsi/cave
 
+# optional: direct Train_Spec zip from Zenodo
+# source: https://zenodo.org/records/7839604/files/Train_Spec.zip?download=1
+mkdir -p ./data/hsi/train_spec
+wget -O ./data/hsi/train_spec/Train_Spec.zip "https://zenodo.org/records/7839604/files/Train_Spec.zip?download=1"
+unzip -o ./data/hsi/train_spec/Train_Spec.zip -d ./data/hsi/train_spec
+
 # optional datasets
 python scripts/download_hsi_dataset.py --dataset ehu --output ./data/hsi/ehu
 
@@ -190,6 +196,51 @@ Note: by default `train_hsi_adapter.py` keeps the model config checkpoint behavi
 ```bash
 bash scripts/run_hsi_finetune.sh
 ```
+
+For ARAD_1K (already ~950 images), recommended setting is **no augmentation** and direct resize to 256x256:
+- disable random crop (`--random_crop_size 0`)
+- do not pass `--use_grid_patches`
+- do not pass `--rotation_aug`
+- keep diffusion training objective aligned with pretrained model: `--loss_target epsilon` (this is now the default in `run_hsi_finetune.sh`).
+- for direct finetuning without warmup, set `--warmup_ratio 0.0` (this is now the default in `run_hsi_finetune.sh`).
+- `--loss_target mixed` / `--loss_target x0` are debug alternatives for diagnosis, not the default finetune objective.
+- fixed-seed qualitative monitoring is available during training: every `N` epochs it saves pseudo-RGB previews (3 selected bands) and full HSI `.npy` to `SAVE_DIR/eval_samples/` (`--eval_sample_interval`, `--eval_num_samples`, `--eval_sample_seed`).
+
+Single-image memorization sanity check (to separate method issues vs model issues):
+
+```bash
+python train_hsi_adapter.py \
+  --single_sample_path ./data/hsi/cave/your_scene.mat \
+  --overfit_repeats 2048 \
+  --epochs 200 \
+  --batch_size 16 \
+  --no-freeze_core \
+  --single_image_autoencoder \
+  --val_ratio 0.0 \
+  --save_dir ./models/hsi_adapter_overfit_single
+```
+
+When `--single_sample_path` is set, training and validation both use the same repeated image.
+For strict memorization checks, prefer `--no-freeze_core` (otherwise only adapter head/tail are trainable).
+If your diffusion epsilon loss stays near ~1, enable `--single_image_autoencoder` to run direct x0 reconstruction sanity checks at t=0.
+If you want to keep epsilon objective but still force a clear one-image overfit curve, keep `--no-single_image_autoencoder` and use fixed-noise mode:
+
+```bash
+python train_hsi_adapter.py \
+  --single_sample_path ./data/hsi/cave/your_scene.mat \
+  --overfit_repeats 2048 \
+  --epochs 200 \
+  --batch_size 16 \
+  --no-freeze_core \
+  --no-single_image_autoencoder \
+  --overfit_fixed_noise \
+  --overfit_fixed_timestep 200 \
+  --overfit_noise_seed 0 \
+  --val_ratio 0.0 \
+  --save_dir ./models/hsi_adapter_overfit_single_eps
+```
+
+Tip: avoid very large `--overfit_fixed_timestep` (e.g., 900+), which is close to pure-noise and can make loss descent appear slow; use about `50~300` for clearer curves.
 
 Training logs are written to:
 - `SAVE_DIR/train_log.csv` (step + epoch metrics, LR, timestep range)
