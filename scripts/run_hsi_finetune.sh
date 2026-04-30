@@ -9,6 +9,7 @@ DATA_ROOT=${DATA_ROOT:-./data/hsi/ARAD_1K}
 SKIP_DOWNLOAD=${SKIP_DOWNLOAD:-1}
 SAVE_DIR=${SAVE_DIR:-./models/hsi_adapter}
 HSI_CHANNELS=${HSI_CHANNELS:-31}
+CORE_PEFT=${CORE_PEFT:-none}
 export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
 
 if [[ "$SKIP_DOWNLOAD" != "1" ]]; then
@@ -29,7 +30,7 @@ python train_hsi_adapter.py \
   --repeats_per_scene 1 \
   --adapter_hidden_channels 256 \
   --adapter_num_blocks 1 \
-  --core_peft none \
+  --core_peft "$CORE_PEFT" \
   --epochs 400 \
   --batch_size 4 \
   --num_workers 0 \

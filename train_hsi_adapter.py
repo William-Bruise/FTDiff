@@ -494,7 +494,7 @@ if __name__ == "__main__":
         help="Whether to freeze diffusion core and train only HSI adapters. "
              "Set --no-freeze_core for strict single-image memorization tests.",
     )
-    parser.add_argument("--core_peft", type=str, default="none", choices=["none", "lora"])
+    parser.add_argument("--core_peft", type=str, default="none", choices=["none", "lora", "attn_kv"])
     parser.add_argument("--lora_rank", type=int, default=1)
     parser.add_argument("--lora_alpha", type=float, default=1.0)
     parser.add_argument("--lora_conv2d_target", type=str, default="1x1", choices=["1x1", "all"])

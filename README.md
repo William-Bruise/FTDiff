@@ -308,6 +308,8 @@ Core PEFT option:
   - `--core_peft none`
 - optional LoRA on frozen diffusion core conv layers:
   - `--core_peft lora --lora_rank 1 --lora_alpha 1.0`
+- optional attention-only PEFT on diffusion core:
+  - `--core_peft attn_kv` (freeze Q, train only K/V slices in attention `qkv` projections)
 - memory-safe default only injects LoRA into 1x1 Conv2d layers:
   - `--lora_conv2d_target 1x1`
 - if you want stronger adaptation and have enough GPU memory, you can increase coverage:

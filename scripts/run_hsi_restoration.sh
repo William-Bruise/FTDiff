@@ -6,6 +6,7 @@ MODEL_CONFIG=${MODEL_CONFIG:-configs/imagenet_model_config.yaml}
 DIFFUSION_CONFIG=${DIFFUSION_CONFIG:-configs/diffusion_config.yaml}
 ADAPTER_CKPT=${ADAPTER_CKPT:-./models/hsi_adapter/hsi_adapter_best.pt}
 HSI_CHANNELS=${HSI_CHANNELS:-31}
+CORE_PEFT=${CORE_PEFT:-none}
 TEST_DATASET=${TEST_DATASET:-cave}
 ICVL_RAW_ROOT=${ICVL_RAW_ROOT:-/home/wuweihao/FTDiff/data/hsi/icvl}
 DATA_ROOT=${DATA_ROOT:-./data/hsi/cave}
@@ -56,7 +57,7 @@ for TASK_CFG in "${TASK_CONFIGS[@]}"; do
     --hsi_channels "$HSI_CHANNELS" \
     --adapter_hidden_channels 256 \
     --adapter_num_blocks 1 \
-    --core_peft none \
+    --core_peft "$CORE_PEFT" \
     --data_root_override "$DATA_ROOT" \
     --gpu "$GPU" \
     --save_dir ./results_hsi \
