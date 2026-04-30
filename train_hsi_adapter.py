@@ -175,6 +175,14 @@ def train(args):
     out_dir.mkdir(parents=True, exist_ok=True)
     vis_dir = out_dir / "eval_samples"
     vis_dir.mkdir(parents=True, exist_ok=True)
+    print(f"[EvalSample] directory: {vis_dir.resolve()}")
+    if args.eval_sample_interval <= 0:
+        print("[EvalSample] disabled (eval_sample_interval <= 0).")
+    else:
+        print(
+            f"[EvalSample] enabled: every {args.eval_sample_interval} epoch(s), "
+            f"num_samples={args.eval_num_samples}, seed={args.eval_sample_seed}."
+        )
     log_path = out_dir / args.log_file
     with open(log_path, "w", newline="") as f:
         writer = csv.writer(f)
@@ -222,7 +230,18 @@ def train(args):
         for i in range(rgb.shape[0]):
             img = rgb[i].detach().cpu().permute(1, 2, 0).numpy()
             plt.imsave(str(vis_dir / f"epoch_{epoch:04d}_sample_{i:02d}.png"), img)
+        # Save one grid preview for quick glance.
+        n = rgb.shape[0]
+        fig, axes = plt.subplots(1, n, figsize=(4 * n, 4), squeeze=False)
+        for i in range(n):
+            axes[0, i].imshow(rgb[i].detach().cpu().permute(1, 2, 0).numpy())
+            axes[0, i].set_title(f"epoch {epoch} / sample {i}")
+            axes[0, i].axis("off")
+        fig.tight_layout()
+        fig.savefig(str(vis_dir / f"epoch_{epoch:04d}_grid.png"), dpi=150)
+        plt.close(fig)
         np.save(str(vis_dir / f"epoch_{epoch:04d}_hsi.npy"), sample.detach().cpu().numpy().astype(np.float32))
+        print(f"[EvalSample] saved epoch {epoch} previews and npy to {vis_dir.resolve()}")
         if prev_state:
             adapter_model.train()
     if args.single_sample_path and (not args.single_image_autoencoder) and args.overfit_fixed_noise:
